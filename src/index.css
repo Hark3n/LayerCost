@@ -1,0 +1,215 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'HarmonyOS Sans SC', 'HarmonyOS Sans', 'Plus Jakarta Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, ui-monospace, SFMono-Regular, Menlo, monospace;
+  --text-xs: 10pt;
+  --text-xs--line-height: 1.45;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.45;
+  --text-base: 1.0625rem;
+  --text-base--line-height: 1.5;
+}
+
+:root {
+  color-scheme: dark;
+  --orca-bg-topbar: #1e1e20;
+  --orca-bg-canvas: #262628;
+  --orca-bg-panel: #2d2d30;
+  --orca-bg-inset: #232325;
+  --orca-bg-hover: #36363a;
+  --orca-bg-input: #1e1e20;
+  --orca-border: #3f3f44;
+  --orca-border-strong: #525259;
+  --orca-accent: #00ae42;
+  --orca-accent-hover: #00c44b;
+  --orca-cyan: #26b4b0;
+  --orca-orange: #f58220;
+}
+
+@layer base {
+  body {
+    font-family: 'HarmonyOS Sans SC', 'HarmonyOS Sans', 'Plus Jakarta Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    font-size: 10pt;
+    background-color: #262628;
+    color: #ededed;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: #00ae42;
+    color: #ffffff;
+  }
+
+  /* OrcaSlicer dark desktop scrollbars */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #1e1e20;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #45454a;
+    border-radius: 4px;
+    border: 1px solid #2d2d30;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #5a5a62;
+  }
+
+  /* OrcaSlicer slider styling */
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: #1e1e20;
+    border: 1px solid #45454a;
+    border-radius: 4px;
+    height: 6px;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    background: #00ae42;
+    border: 1px solid #00d150;
+    cursor: pointer;
+    transition: background-color 120ms ease, transform 120ms ease;
+  }
+  input[type="range"]::-webkit-slider-thumb:hover {
+    background: #00c44b;
+    transform: scale(1.06);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    background: #00ae42;
+    border: 1px solid #00d150;
+    cursor: pointer;
+  }
+
+  select option,
+  select optgroup {
+    background-color: #1e1e20;
+    color: #ededed;
+  }
+}
+
+/* Structured, Professional Print Styles for Commercial Quotation & Invoicing (window.print() / Save as PDF) */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 12mm 12mm 12mm;
+  }
+
+  /* Force background colors, badges, borders, and fills to print accurately */
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* Reset root document viewport & scrolling */
+  html, body {
+    background: #ffffff !important;
+    color: #18181b !important;
+    font-size: 10pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Hide app chrome: header, nav, main dashboard content, footer, modal headers/footers, upload controls */
+  header,
+  footer,
+  main,
+  nav,
+  .no-print,
+  [data-no-print="true"] {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Un-fix modal overlay so document flows naturally across multiple A4 pages */
+  .quote-modal-overlay {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    overflow: visible !important;
+    z-index: auto !important;
+  }
+
+  .quote-modal-dialog {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    color: #18181b !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  /* Ensure the printable quote sheet takes full printable width with high contrast */
+  .printable-quote-sheet {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    color: #18181b !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Prevent awkward page break splits */
+  .print-avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* High-contrast table rendering for print */
+  .printable-quote-sheet table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  .printable-quote-sheet th,
+  .printable-quote-sheet td {
+    border-color: #d4d4d8 !important;
+  }
+
+  /* Ensure tags and certification badges print with clean contrast (never black) */
+  .tag-qa,
+  [class*="bg-emerald-950"] {
+    background-color: #ecfdf5 !important;
+    color: #047857 !important;
+    border-color: #a7f3d0 !important;
+  }
+}

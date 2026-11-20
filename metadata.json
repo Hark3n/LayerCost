@@ -1,0 +1,6 @@
+{
+  "name": "LayerCost - 3D Print Total Cost Estimator",
+  "description": "Comprehensive 3D printing cost calculator and quoting engine. Parse G-code from Cura, PrusaSlicer, Bambu Studio, OrcaSlicer, or Klipper to compute filament, power, depreciation, wear, consumables, and labor costs with an interactive 3D toolpath visualizer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
