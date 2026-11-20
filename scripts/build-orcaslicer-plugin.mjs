@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import { build } from 'vite';
+
+process.env.NODE_ENV = 'production';
+const { build } = await import('vite');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
@@ -15,6 +17,7 @@ async function main() {
 
   await build({
     configFile: path.join(rootDir, 'vite.plugin.config.ts'),
+    mode: 'production',
     logLevel: 'warn',
   });
 
@@ -177,6 +180,36 @@ def _load_snapshot() -> dict[str, Any] | None:
         return None
 
 
+def _save_user_settings(settings: dict[str, Any]) -> None:
+    if not isinstance(settings, dict):
+        return
+    with _STATE_LOCK:
+        storage_dir = _get_storage_dir()
+        if storage_dir is not None:
+            try:
+                (storage_dir / "user_settings.json").write_text(
+                    json.dumps(settings, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
+
+
+def _load_user_settings() -> dict[str, Any]:
+    with _STATE_LOCK:
+        storage_dir = _get_storage_dir()
+        if storage_dir is not None:
+            cfg_file = storage_dir / "user_settings.json"
+            if cfg_file.exists():
+                try:
+                    data = json.loads(cfg_file.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        return data
+                except Exception:
+                    pass
+        return {}
+
+
 def _parse_time_to_seconds(raw: str) -> int:
     raw = raw.strip()
     colon_match = re.search(r"(\\d{1,2}):(\\d{2}):(\\d{2})", raw)
@@ -219,7 +252,7 @@ def _format_seconds_hms(total_secs: int) -> str:
     return " ".join(parts)
 
 
-def _read_header_footer(file_path: Path, chunk_bytes: int = 262144) -> str:
+def _read_header_footer(file_path: Path, chunk_bytes: int = 786432) -> str:
     size = file_path.stat().st_size
     with file_path.open("r", encoding="utf-8", errors="ignore") as f:
         header = f.read(min(size, chunk_bytes))
@@ -257,7 +290,7 @@ def parse_gcode_metrics(gcode_path: str | Path) -> dict[str, Any]:
     # Print time
     print_time_seconds = 0
     for rx in [
-        r";\\s*(?:estimated printing time(?: \\(normal mode\\))?|total estimated time)\\s*(?:=|:)\\s*([^\\r\\n]+)",
+        r";\\s*(?:estimated printing time(?: \\([^)]+\\))?|total estimated time|model printing time)\\s*(?:=|:)\\s*([^\\r\\n]+)",
         r";\\s*TIME:(\\d+)",
     ]:
         m_t = re.search(rx, text, re.IGNORECASE)
@@ -282,11 +315,15 @@ def parse_gcode_metrics(gcode_path: str | Path) -> dict[str, Any]:
     if m_names:
         names_list = _split_list_value(m_names.group(1))
 
-    # Filament used in grams (supports multi-filament comma/semicolon lists)
+    # Filament used in grams (check per-slot array first so total_filament doesn't shadow it)
     filament_grams = 0.0
     multi_filaments: list[dict[str, Any]] = []
     m_grams = re.search(
-        r";\\s*(?:filament used \\[g\\]|total filament used \\[g\\])\\s*=\\s*([0-9.,;\\s]+)",
+        r";\\s*filament used \\[g\\]\\s*=\\s*([0-9.,;\\s]+)",
+        text,
+        re.IGNORECASE,
+    ) or re.search(
+        r";\\s*total filament used \\[g\\]\\s*=\\s*([0-9.,;\\s]+)",
         text,
         re.IGNORECASE,
     )
@@ -413,15 +450,43 @@ def _register_session_gcodes(paths: list[str | Path]) -> None:
                     continue
                 parent_str = str(p.parent)
                 if _LAST_SESSION_DIR and _LAST_SESSION_DIR != parent_str:
-                    # Drop stale paths if OrcaSlicer switched to a different temp/project directory
-                    # unless files share a common orcaslicer project parent folder
-                    common = os.path.commonpath([_LAST_SESSION_DIR, parent_str])
-                    if common in ("/", str(Path(tempfile.gettempdir()).resolve())):
+                    try:
+                        common = os.path.commonpath([_LAST_SESSION_DIR, parent_str])
+                        if common in ("/", str(Path(tempfile.gettempdir()).resolve())):
+                            _SESSION_GCODE_PATHS.clear()
+                    except ValueError:
                         _SESSION_GCODE_PATHS.clear()
                 _LAST_SESSION_DIR = parent_str
                 _SESSION_GCODE_PATHS[str(p)] = p.stat().st_mtime
             except Exception:
                 continue
+
+
+def _iter_gcode_files(base_dir: Path, temp_root: Path, max_depth: int = 5) -> list[Path]:
+    """Permission-safe recursive scanner for OrcaSlicer .gcode/.gco files."""
+    found: list[Path] = []
+    stack: list[tuple[Path, int]] = [(base_dir, 0)]
+    while stack:
+        cur_dir, depth = stack.pop()
+        try:
+            with os.scandir(cur_dir) as it:
+                for entry in it:
+                    try:
+                        if entry.is_file(follow_symlinks=False):
+                            lname = entry.name.lower()
+                            if lname.endswith(".gcode") or lname.endswith(".gco"):
+                                found.append(Path(entry.path))
+                        elif depth < max_depth and entry.is_dir(follow_symlinks=False):
+                            if depth == 0 and cur_dir.resolve() == temp_root:
+                                dlow = entry.name.lower()
+                                if not any(k in dlow for k in ("orca", "bambu", "slice", "plate", "3mf")):
+                                    continue
+                            stack.append((Path(entry.path), depth + 1))
+                    except Exception:
+                        continue
+        except Exception:
+            continue
+    return found
 
 
 def _discover_plate_gcodes(explicit_paths: list[str | Path] | None = None) -> list[Path]:
@@ -433,7 +498,7 @@ def _discover_plate_gcodes(explicit_paths: list[str | Path] | None = None) -> li
         for raw_p in explicit_paths:
             try:
                 p = Path(str(raw_p)).resolve()
-                if p.exists() and p.stat().st_size > 100:
+                if p.exists() and p.is_file() and p.stat().st_size > 100:
                     candidates[str(p)] = p
             except Exception:
                 continue
@@ -442,6 +507,18 @@ def _discover_plate_gcodes(explicit_paths: list[str | Path] | None = None) -> li
     try:
         plater = orca.host.plater()
         if plater is not None:
+            for list_attr in ("gcode_paths", "get_gcode_paths", "plate_gcode_paths", "sliced_gcode_paths"):
+                lval = getattr(plater, list_attr, None)
+                lres = lval() if callable(lval) else lval
+                if lres and isinstance(lres, (list, tuple)):
+                    for gp_res in lres:
+                        if gp_res:
+                            try:
+                                p = Path(str(gp_res)).resolve()
+                                if p.exists() and p.is_file() and p.stat().st_size > 100:
+                                    candidates[str(p)] = p
+                            except Exception:
+                                continue
             for attr in ("plates", "get_plates", "partplate_list"):
                 plates_val = getattr(plater, attr, None)
                 plates = plates_val() if callable(plates_val) else plates_val
@@ -451,19 +528,25 @@ def _discover_plate_gcodes(explicit_paths: list[str | Path] | None = None) -> li
                             gp = getattr(plate, p_attr, None)
                             gp_res = gp() if callable(gp) else gp
                             if gp_res:
-                                p = Path(str(gp_res)).resolve()
-                                if p.exists() and p.stat().st_size > 100:
-                                    candidates[str(p)] = p
+                                try:
+                                    p = Path(str(gp_res)).resolve()
+                                    if p.exists() and p.is_file() and p.stat().st_size > 100:
+                                        candidates[str(p)] = p
+                                except Exception:
+                                    continue
     except Exception:
         pass
 
     # Include any already registered session plate paths that still exist
     with _STATE_LOCK:
         for raw_p in list(_SESSION_GCODE_PATHS.keys()):
-            p = Path(raw_p)
-            if p.exists() and p.stat().st_size > 100:
-                candidates[str(p)] = p
-            else:
+            try:
+                p = Path(raw_p)
+                if p.exists() and p.is_file() and p.stat().st_size > 100:
+                    candidates[str(p)] = p
+                else:
+                    _SESSION_GCODE_PATHS.pop(raw_p, None)
+            except Exception:
                 _SESSION_GCODE_PATHS.pop(raw_p, None)
 
     # Scan OS temp folders + sibling directories of known G-code paths for multi-plate files
@@ -475,9 +558,11 @@ def _discover_plate_gcodes(explicit_paths: list[str | Path] | None = None) -> li
         for raw_p in reversed(explicit_paths):
             try:
                 p = Path(str(raw_p)).resolve()
-                if p.exists() and p.stat().st_size > 100:
+                if p.exists() and p.is_file() and p.stat().st_size > 100:
                     anchor_file = p
                     break
+                if p.exists() and p.is_dir() and p not in search_dirs:
+                    search_dirs.append(p)
             except Exception:
                 continue
 
@@ -495,12 +580,26 @@ def _discover_plate_gcodes(explicit_paths: list[str | Path] | None = None) -> li
             search_dirs.append(parent_dir)
 
     if not search_dirs:
-        for d in (temp_root / "orcaslicer_model", temp_root / "OrcaSlicer", temp_root):
-            if d.exists() and d not in search_dirs:
-                search_dirs.append(d)
+        candidate_dirs = [
+            temp_root / "orcaslicer_model",
+            temp_root / "OrcaSlicer",
+            temp_root / "bambuslicer_model",
+            temp_root / "BambuStudio",
+            temp_root,
+        ]
+        for env_key in ("LOCALAPPDATA", "APPDATA", "XDG_RUNTIME_DIR"):
+            env_val = os.environ.get(env_key)
+            if env_val:
+                candidate_dirs.append(Path(env_val) / "OrcaSlicer")
+        for d in candidate_dirs:
+            try:
+                if d.exists() and d.is_dir() and d not in search_dirs:
+                    search_dirs.append(d)
+            except Exception:
+                continue
         try:
             for entry in temp_root.iterdir():
-                if entry.is_dir() and "orca" in entry.name.lower() and entry not in search_dirs:
+                if entry.is_dir() and any(k in entry.name.lower() for k in ("orca", "bambu", "slice")) and entry not in search_dirs:
                     search_dirs.append(entry)
         except Exception:
             pass
@@ -508,16 +607,13 @@ def _discover_plate_gcodes(explicit_paths: list[str | Path] | None = None) -> li
     scanned_files: list[tuple[float, Path]] = []
     min_mtime = max(0.0, _SLICE_START_TIME - 5.0)
     for base_dir in search_dirs:
-        try:
-            for gfile in base_dir.glob("**/*.gcode"):
-                try:
-                    st = gfile.stat()
-                    if st.st_size > 100:
-                        scanned_files.append((st.st_mtime, gfile.resolve()))
-                except Exception:
-                    continue
-        except Exception:
-            continue
+        for gfile in _iter_gcode_files(base_dir, temp_root, max_depth=5):
+            try:
+                st = gfile.stat()
+                if st.st_size > 100:
+                    scanned_files.append((st.st_mtime, gfile.resolve()))
+            except Exception:
+                continue
 
     # Determine active project directory from explicit anchor or newest sliced file
     if scanned_files:
@@ -536,7 +632,6 @@ def _discover_plate_gcodes(explicit_paths: list[str | Path] | None = None) -> li
         session_cutoff = max(min_mtime, newest_mtime - 1800.0) if is_dedicated_subdir else max(min_mtime, newest_mtime - 120.0)
 
         for mtime, gpath in scanned_files:
-            # Keep all plates from the same active project directory or per-plate sibling subfolders
             same_dir = gpath.parent == active_dir
             shared_project_root = (
                 active_dir.parent != temp_root
@@ -573,19 +668,21 @@ def _collect_host_context(
     try:
         model = orca.host.model()
         if model is not None:
-            objs = model.objects()
-            for obj in objs:
-                name = getattr(obj, "name", None)
-                if callable(name):
-                    name = name()
-                instances = getattr(obj, "instances", None)
-                inst_count = len(instances()) if callable(instances) else 1
-                host_info["objects"].append({
-                    "name": str(name or "Model Part"),
-                    "instances": max(1, int(inst_count)),
-                })
-            if host_info["objects"]:
-                host_info["projectName"] = str(host_info["objects"][0]["name"]).rsplit(".", 1)[0]
+            objs_attr = getattr(model, "objects", None)
+            objs = objs_attr() if callable(objs_attr) else objs_attr
+            if objs:
+                for obj in objs:
+                    name = getattr(obj, "name", None)
+                    if callable(name):
+                        name = name()
+                    instances = getattr(obj, "instances", None)
+                    inst_count = len(instances()) if callable(instances) else (len(instances) if isinstance(instances, (list, tuple)) else 1)
+                    host_info["objects"].append({
+                        "name": str(name or "Model Part"),
+                        "instances": max(1, int(inst_count)),
+                    })
+                if host_info["objects"]:
+                    host_info["projectName"] = str(host_info["objects"][0]["name"]).rsplit(".", 1)[0]
     except Exception:
         pass
 
@@ -749,16 +846,35 @@ def _decode_embedded_ui() -> str:
 def _extract_ctx_paths(ctx: Any) -> list[str]:
     """Collect any G-code path(s) exposed on an OrcaSlicer pipeline/lifecycle context."""
     found: list[str] = []
-    for attr in ("gcode_paths", "output_paths", "gcode_files"):
-        val = getattr(ctx, attr, None)
+    if ctx is None:
+        return found
+
+    def _get(obj: Any, attr: str) -> Any:
+        if isinstance(obj, dict):
+            return obj.get(attr)
+        val = getattr(obj, attr, None)
+        return val() if callable(val) else val
+
+    for attr in ("gcode_paths", "output_paths", "gcode_files", "plate_gcode_paths"):
+        val = _get(ctx, attr)
         if val and isinstance(val, (list, tuple)):
             for item in val:
-                if item and Path(str(item)).exists():
-                    found.append(str(item))
-    for attr in ("gcode_path", "path", "output_path"):
-        val = getattr(ctx, attr, None)
-        if val and Path(str(val)).exists():
-            found.append(str(val))
+                try:
+                    if item and Path(str(item)).exists():
+                        found.append(str(item))
+                except Exception:
+                    continue
+
+    for attr in ("gcode_path", "path", "output_path", "file_path", "filename", "output_dir", "temp_dir"):
+        val = _get(ctx, attr)
+        if val:
+            try:
+                p = Path(str(val))
+                if p.exists():
+                    found.append(str(p))
+            except Exception:
+                continue
+
     return found
 
 
@@ -801,8 +917,14 @@ class LayerCostPage(orca.pages.PagesPluginCapabilityBase):
         _ACTIVE_PAGE_INSTANCE = self
 
         msg_type = (data or {}).get("type")
-        if msg_type in ("ready", "pull_slice_data"):
+        if msg_type == "ready":
+            saved_settings = _load_user_settings()
+            self.post_message({"type": "settings_loaded", "settings": saved_settings})
             self._push_latest_to_ui()
+        elif msg_type == "pull_slice_data":
+            self._push_latest_to_ui()
+        elif msg_type == "save_settings":
+            _save_user_settings((data or {}).get("settings") or {})
         elif msg_type == "save_invoice_html":
             filename = data.get("filename") or f"LayerCost_Quote_{int(time.time())}.html"
             html = data.get("html") or ""
@@ -827,10 +949,34 @@ class LayerCostPage(orca.pages.PagesPluginCapabilityBase):
     def on_lifecycle_event(self, event: Any, ctx: Any) -> None:
         global _SLICE_START_TIME
         try:
-            le = orca.LifecycleEvent
-            if event == le.SliceStarted:
+            le = getattr(orca, "LifecycleEvent", None)
+            started_events = {
+                ev for ev in (
+                    getattr(le, "SliceStarted", None) if le else None,
+                    getattr(le, "SlicingStarted", None) if le else None,
+                )
+                if ev is not None
+            }
+            complete_events = {
+                ev for ev in (
+                    getattr(le, "SlicingJobComplete", None) if le else None,
+                    getattr(le, "SliceComplete", None) if le else None,
+                    getattr(le, "SlicingComplete", None) if le else None,
+                    getattr(le, "GCodeExportFinished", None) if le else None,
+                    getattr(le, "SliceGeometryFinished", None) if le else None,
+                    getattr(le, "PlateSliced", None) if le else None,
+                )
+                if ev is not None
+            }
+
+            ev_name = str(event).lower()
+            is_started = (event in started_events) or ("started" in ev_name and "slic" in ev_name)
+            is_complete = (event in complete_events) or (
+                not is_started and any(tok in ev_name for tok in ("complete", "finished", "gcodeexport", "sliced"))
+            )
+
+            if is_started:
                 now = time.time()
-                # Only update batch start baseline if starting a new batch (>8s since last start)
                 if _SLICE_START_TIME == 0.0 or (now - _SLICE_START_TIME) > 8.0:
                     _SLICE_START_TIME = now
                 try:
@@ -839,10 +985,11 @@ class LayerCostPage(orca.pages.PagesPluginCapabilityBase):
                     pass
                 return
 
-            if event in (le.SlicingJobComplete, le.GCodeExportFinished, le.SliceGeometryFinished):
-                # Check for slicing error if LifecycleEvtCode exists
+            if is_complete:
                 try:
-                    if getattr(ctx, "code", None) == orca.LifecycleEvtCode.Error:
+                    evt_code_cls = getattr(orca, "LifecycleEvtCode", None)
+                    err_code = getattr(evt_code_cls, "Error", None) if evt_code_cls else None
+                    if err_code is not None and getattr(ctx, "code", None) == err_code:
                         err_msg = getattr(ctx, "msg", "Slicing failed inside OrcaSlicer.")
                         self.post_message({"type": "slicing_error", "message": str(err_msg)})
                         return
@@ -854,7 +1001,7 @@ class LayerCostPage(orca.pages.PagesPluginCapabilityBase):
                     include_temp_gcode_scan=True,
                     explicit_paths=explicit_paths,
                 )
-                all_paths = host_info.get("discoveredGcodePaths") or explicit_paths
+                all_paths = host_info.get("discoveredGcodePaths") or [p for p in explicit_paths if Path(p).is_file()]
 
                 if all_paths:
                     payload = _build_payload_from_gcodes(all_paths, host_info)
@@ -883,13 +1030,17 @@ class LayerCostSlicingHook(orca.slicing.SlicingPipelineCapabilityBase):
 
     def execute(self, ctx: Any) -> Any:
         try:
-            if ctx.step != orca.slicing.Step.psGCodePostProcess:
+            step_cls = getattr(getattr(orca, "slicing", None), "Step", None)
+            post_step = getattr(step_cls, "psGCodePostProcess", None) if step_cls else None
+            cur_step = getattr(ctx, "step", None)
+            if post_step is not None and cur_step is not None and cur_step != post_step:
                 return orca.ExecutionResult.success()
 
             explicit_paths = _extract_ctx_paths(ctx)
             if explicit_paths:
+                host_info = _collect_host_context(include_temp_gcode_scan=False)
                 all_plates = _discover_plate_gcodes(explicit_paths=explicit_paths)
-                payload = _build_payload_from_gcodes(all_plates or explicit_paths)
+                payload = _build_payload_from_gcodes(all_plates or explicit_paths, host_info)
                 _save_snapshot(payload)
                 if _ACTIVE_PAGE_INSTANCE is not None:
                     try:

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FilamentEntry, GcodeFileItem, CustomFilamentPreset } from '../types/calculator';
 import { MATERIAL_PRESETS } from '../data/presets';
+import { CUSTOM_FILAMENTS_STORAGE_KEY, safeGetItem, safeSetItem } from '../utils/storage';
 import { CustomFilamentModal } from './CustomFilamentModal';
 import {
   Layers,
@@ -22,6 +23,7 @@ interface MultiFilamentManagerProps {
   files: GcodeFileItem[];
   currencySymbol: string;
   batchMultiplier: number;
+  onCustomLibraryChange?: (library: CustomFilamentPreset[]) => void;
 }
 
 const PRESET_COLORS = [
@@ -55,6 +57,7 @@ export const MultiFilamentManager: React.FC<MultiFilamentManagerProps> = ({
   files,
   currencySymbol,
   batchMultiplier,
+  onCustomLibraryChange,
 }) => {
   const [showPresetMenu, setShowPresetMenu] = useState<boolean>(false);
   const [isCustomModalOpen, setIsCustomModalOpen] = useState<boolean>(false);
@@ -63,20 +66,32 @@ export const MultiFilamentManager: React.FC<MultiFilamentManagerProps> = ({
   // Persistent Custom Filament Library
   const [customLibrary, setCustomLibrary] = useState<CustomFilamentPreset[]>(() => {
     try {
-      const stored = localStorage.getItem('layercost_custom_filaments');
+      const stored = safeGetItem(CUSTOM_FILAMENTS_STORAGE_KEY);
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
     }
   });
 
+  useEffect(() => {
+    const onHydrated = (evt: Event) => {
+      const detail = (evt as CustomEvent<{ customFilaments?: CustomFilamentPreset[] }>).detail;
+      if (detail?.customFilaments && Array.isArray(detail.customFilaments)) {
+        setCustomLibrary(detail.customFilaments);
+      }
+    };
+    window.addEventListener('layercost-settings-hydrated', onHydrated);
+    return () => window.removeEventListener('layercost-settings-hydrated', onHydrated);
+  }, []);
+
   const saveCustomLibrary = (list: CustomFilamentPreset[]) => {
     setCustomLibrary(list);
     try {
-      localStorage.setItem('layercost_custom_filaments', JSON.stringify(list));
+      safeSetItem(CUSTOM_FILAMENTS_STORAGE_KEY, JSON.stringify(list));
     } catch {
       // quota fallback
     }
+    onCustomLibraryChange?.(list);
   };
 
   // Add a standard preset or basic slot

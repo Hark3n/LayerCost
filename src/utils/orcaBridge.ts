@@ -12,6 +12,11 @@ import {
   OrcaOutgoingMessage,
 } from '../types/orca';
 import { formatSecondsToHms } from './gcodeParser';
+import {
+  CUSTOM_FILAMENTS_STORAGE_KEY,
+  loadFilamentPricingPrefs,
+  safeGetItem,
+} from './storage';
 
 const DEFAULT_COLORS = ['#38bdf8', '#f97316', '#10b981', '#a855f7', '#eab308', '#ef4444'];
 
@@ -52,9 +57,20 @@ export function subscribeOrcaMessages(
     typeof window.orca !== 'undefined' &&
     typeof window.orca.onMessage === 'function';
 
+  const wrappedHandler = (raw: unknown) => {
+    try {
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (parsed && typeof parsed === 'object') {
+        handler(parsed as OrcaIncomingMessage);
+      }
+    } catch (err) {
+      console.warn('Failed to process OrcaSlicer message:', err);
+    }
+  };
+
   if (bridgeAvailable && window.orca) {
     try {
-      window.orca.onMessage(handler);
+      window.orca.onMessage(wrappedHandler as (data: OrcaIncomingMessage) => void);
     } catch (err) {
       console.warn('OrcaSlicer onMessage registration failed:', err);
     }
@@ -129,13 +145,14 @@ export function matchPrinterPreset(printerName?: string): PrinterPreset | null {
  */
 export function resolveFilamentPricing(
   type: string,
-  name?: string
-): { spoolPrice: number; spoolWeightGrams: number; resolvedName?: string } {
+  name?: string,
+  slot?: number
+): { spoolPrice: number; spoolWeightGrams: number; resolvedName?: string; colorHex?: string } {
   const normType = (type || 'PLA').toUpperCase().trim();
   const normName = (name || '').toLowerCase().trim();
 
   try {
-    const rawCustom = localStorage.getItem('layercost_custom_filaments');
+    const rawCustom = safeGetItem(CUSTOM_FILAMENTS_STORAGE_KEY);
     if (rawCustom) {
       const customs: CustomFilamentPreset[] = JSON.parse(rawCustom);
       // 1. Exact/partial name match
@@ -150,6 +167,7 @@ export function resolveFilamentPricing(
             spoolPrice: byName.spoolPrice,
             spoolWeightGrams: byName.spoolWeightGrams,
             resolvedName: byName.name,
+            colorHex: byName.colorHex,
           };
         }
       }
@@ -160,8 +178,28 @@ export function resolveFilamentPricing(
           spoolPrice: byType.spoolPrice,
           spoolWeightGrams: byType.spoolWeightGrams,
           resolvedName: byType.name,
+          colorHex: byType.colorHex,
         };
       }
+    }
+  } catch {
+    // ignore storage errors
+  }
+
+  // 3. User's saved inline spool edits (persists manual changes to filament price/weight/name)
+  try {
+    const prefs = loadFilamentPricingPrefs();
+    const byName = normName ? prefs[`name:${normName}`] : undefined;
+    const bySlot = slot ? prefs[`slot:${slot}:${normType}`] : undefined;
+    const byType = prefs[`type:${normType}`];
+    const matchedPref = byName || bySlot || byType;
+    if (matchedPref && matchedPref.spoolPrice >= 0) {
+      return {
+        spoolPrice: matchedPref.spoolPrice,
+        spoolWeightGrams: Math.max(1, matchedPref.spoolWeightGrams || 1000),
+        resolvedName: matchedPref.name,
+        colorHex: matchedPref.colorHex,
+      };
     }
   } catch {
     // ignore storage errors
@@ -197,16 +235,17 @@ export function convertOrcaPayloadToJob(payload: OrcaBridgePayload): {
   let filaments: FilamentEntry[] = [];
   if (payload.filaments && payload.filaments.length > 0) {
     filaments = payload.filaments.map((f, idx) => {
-      const pricing = resolveFilamentPricing(f.type, f.name);
+      const slotNum = f.slot || idx + 1;
+      const pricing = resolveFilamentPricing(f.type, f.name, slotNum);
       return {
-        id: `orca-fil-${f.slot || idx + 1}-${now}`,
-        name: f.name || pricing.resolvedName || `AMS Slot ${f.slot || idx + 1} (${f.type || 'PLA'})`,
+        id: `orca-fil-${slotNum}-${now}`,
+        name: f.name || pricing.resolvedName || `AMS Slot ${slotNum} (${f.type || 'PLA'})`,
         type: (f.type || 'PLA').toUpperCase(),
         spoolPrice: f.spoolPrice ?? pricing.spoolPrice,
         spoolWeightGrams: f.spoolWeightGrams ?? pricing.spoolWeightGrams,
         gramsUsed: Math.round((f.gramsUsed || 0) * 10) / 10,
         purgeGrams: Math.round((f.purgeGrams || 0) * 10) / 10,
-        colorHex: f.colorHex || DEFAULT_COLORS[idx % DEFAULT_COLORS.length],
+        colorHex: f.colorHex || pricing.colorHex || DEFAULT_COLORS[idx % DEFAULT_COLORS.length],
       };
     });
   } else if (incomingFiles.length > 0) {
@@ -263,7 +302,7 @@ export function convertOrcaPayloadToJob(payload: OrcaBridgePayload): {
     });
 
     filaments = Array.from(slotMap.values()).map((s, idx) => {
-      const pricing = resolveFilamentPricing(s.type, s.name);
+      const pricing = resolveFilamentPricing(s.type, s.name, s.slot);
       return {
         id: `orca-fil-${s.slot}-${idx}-${now}`,
         name: pricing.resolvedName || s.name,
@@ -272,7 +311,7 @@ export function convertOrcaPayloadToJob(payload: OrcaBridgePayload): {
         spoolWeightGrams: pricing.spoolWeightGrams,
         gramsUsed: Math.round(s.gramsUsed * 10) / 10,
         purgeGrams: Math.round(s.purgeGrams * 10) / 10,
-        colorHex: s.colorHex,
+        colorHex: s.colorHex || pricing.colorHex,
       };
     });
   }

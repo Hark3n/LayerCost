@@ -69,12 +69,14 @@ export type OrcaIncomingMessage =
   | { type: 'gcode_data'; payload: OrcaBridgePayload }
   | { type: 'slicing_error'; message: string }
   | { type: 'no_slice_yet'; hostInfo?: { printerName?: string; projectName?: string; objectCount?: number } }
-  | { type: 'invoice_saved'; path: string };
+  | { type: 'invoice_saved'; path: string }
+  | { type: 'settings_loaded'; settings: Record<string, unknown> };
 
 export type OrcaOutgoingMessage =
   | { type: 'ready' }
   | { type: 'pull_slice_data' }
   | { type: 'save_invoice_html'; filename: string; html: string }
+  | { type: 'save_settings'; settings: Record<string, unknown> }
   | { type: 'notify'; title: string; message: string };
 
 export interface OrcaWindowBridge {

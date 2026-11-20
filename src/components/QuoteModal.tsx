@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { CostBreakdown, CostParameters, GcodeMetadata, GcodeFileItem } from '../types/calculator';
 import { calculatePartCostItems } from '../utils/costEngine';
 import { isRunningInOrcaSlicer, saveInvoiceViaOrca } from '../utils/orcaBridge';
+import { safeGetItem, safeSetItem, safeRemoveItem } from '../utils/storage';
 import {
   Printer,
   Copy,
@@ -59,25 +60,25 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
   const partCosts = calculatePartCostItems(activeFiles, params, breakdown);
 
   const [businessName, setBusinessName] = useState(() => {
-    return localStorage.getItem('layercost_business_name') || 'Apex Additive Solutions';
+    return safeGetItem('layercost_business_name') || 'Apex Additive Solutions';
   });
   const [vatNumber, setVatNumber] = useState(() => {
-    return localStorage.getItem('layercost_vat_number') || 'TAX-4890281942';
+    return safeGetItem('layercost_vat_number') || 'TAX-4890281942';
   });
   const [companyLogo, setCompanyLogo] = useState<string | null>(() => {
-    return localStorage.getItem('layercost_company_logo') || null;
+    return safeGetItem('layercost_company_logo') || null;
   });
   const [bankName, setBankName] = useState(() => {
-    return localStorage.getItem('layercost_bank_name') || 'Commercial Business Bank';
+    return safeGetItem('layercost_bank_name') || 'Commercial Business Bank';
   });
   const [accountNumber, setAccountNumber] = useState(() => {
-    return localStorage.getItem('layercost_account_number') || '6289 4028 194';
+    return safeGetItem('layercost_account_number') || '6289 4028 194';
   });
   const [accountType, setAccountType] = useState(() => {
-    return localStorage.getItem('layercost_account_type') || 'Business Checking Account';
+    return safeGetItem('layercost_account_type') || 'Business Checking Account';
   });
   const [branchCode, setBranchCode] = useState(() => {
-    return localStorage.getItem('layercost_branch_code') || '250655 / SWIFT';
+    return safeGetItem('layercost_branch_code') || '250655 / SWIFT';
   });
   const [isEditingBankDetails, setIsEditingBankDetails] = useState<boolean>(false);
   const [clientName, setClientName] = useState(initialClientName || 'Horizon Engineering & Product Design');
@@ -186,11 +187,7 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
         const base64 = event.target?.result as string;
         if (base64) {
           setCompanyLogo(base64);
-          try {
-            localStorage.setItem('layercost_company_logo', base64);
-          } catch {
-            // Storage quota fallback
-          }
+          safeSetItem('layercost_company_logo', base64);
         }
       };
       reader.readAsDataURL(file);
@@ -199,37 +196,37 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
 
   const handleRemoveLogo = () => {
     setCompanyLogo(null);
-    localStorage.removeItem('layercost_company_logo');
+    safeRemoveItem('layercost_company_logo');
   };
 
   const handleBusinessNameChange = (val: string) => {
     setBusinessName(val);
-    localStorage.setItem('layercost_business_name', val);
+    safeSetItem('layercost_business_name', val);
   };
 
   const handleVatNumberChange = (val: string) => {
     setVatNumber(val);
-    localStorage.setItem('layercost_vat_number', val);
+    safeSetItem('layercost_vat_number', val);
   };
 
   const handleBankNameChange = (val: string) => {
     setBankName(val);
-    localStorage.setItem('layercost_bank_name', val);
+    safeSetItem('layercost_bank_name', val);
   };
 
   const handleAccountNumberChange = (val: string) => {
     setAccountNumber(val);
-    localStorage.setItem('layercost_account_number', val);
+    safeSetItem('layercost_account_number', val);
   };
 
   const handleAccountTypeChange = (val: string) => {
     setAccountType(val);
-    localStorage.setItem('layercost_account_type', val);
+    safeSetItem('layercost_account_type', val);
   };
 
   const handleBranchCodeChange = (val: string) => {
     setBranchCode(val);
-    localStorage.setItem('layercost_branch_code', val);
+    safeSetItem('layercost_branch_code', val);
   };
 
   const currentDate = new Date().toLocaleDateString(undefined, {

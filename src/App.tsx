@@ -26,13 +26,13 @@ import {
   Globe,
 } from 'lucide-react';
 import {
-  GcodeMetadata,
-  CostParameters,
   PrinterPreset,
   MaterialPreset,
   ElectricityPreset,
   GcodeFileItem,
   FilamentEntry,
+  CustomFilamentPreset,
+  CostParameters,
 } from './types/calculator';
 import { PRINTER_PRESETS, MATERIAL_PRESETS, ELECTRICITY_PRESETS, SAMPLE_GCODES } from './data/presets';
 import { WORLD_CURRENCIES, POPULAR_CURRENCY_CODES, findCurrencyByCode } from './data/currencies';
@@ -45,6 +45,18 @@ import {
   requestLatestSliceFromOrca,
   convertOrcaPayloadToJob,
 } from './utils/orcaBridge';
+import {
+  CUSTOM_FILAMENTS_STORAGE_KEY,
+  FILAMENT_PREFS_STORAGE_KEY,
+  FilamentPricingPref,
+  LayerCostSavedSettings,
+  PrinterOverrideSpec,
+  buildFilamentPricingPrefs,
+  loadSavedSettings,
+  safeGetItem,
+  safeSetItem,
+  saveSettingsToStorage,
+} from './utils/storage';
 import { CostBreakdownChart } from './components/CostBreakdownChart';
 import { BatchCalculator } from './components/BatchCalculator';
 import { QuoteModal } from './components/QuoteModal';
@@ -56,19 +68,34 @@ import { MultiFilamentManager } from './components/MultiFilamentManager';
 export default function App() {
   const fileInputId = useId();
 
-  // 1. Multi-Filament Slots State (Default: Primary Standard PLA Roll)
-  const [filaments, setFilaments] = useState<FilamentEntry[]>([
-    {
-      id: 'fil-1',
-      name: 'Primary Standard PLA (eSUN)',
-      type: 'PLA',
-      spoolPrice: 22.00,
-      spoolWeightGrams: 1000,
-      gramsUsed: SAMPLE_GCODES[0].metadata.filamentGrams,
-      purgeGrams: 0,
-      colorHex: '#38bdf8', // sky blue
-    },
-  ]);
+  const initialSaved = useMemo(() => loadSavedSettings(), []);
+
+  // 1. Multi-Filament Slots State (Restored from saved settings or default Primary Standard PLA Roll)
+  const [filaments, setFilaments] = useState<FilamentEntry[]>(() => {
+    if (initialSaved.filaments && initialSaved.filaments.length > 0) {
+      return initialSaved.filaments;
+    }
+    return [
+      {
+        id: 'fil-1',
+        name: 'Primary Standard PLA (eSUN)',
+        type: 'PLA',
+        spoolPrice: 22.00,
+        spoolWeightGrams: 1000,
+        gramsUsed: SAMPLE_GCODES[0].metadata.filamentGrams,
+        purgeGrams: 0,
+        colorHex: '#38bdf8', // sky blue
+      },
+    ];
+  });
+
+  const [filamentPricingPrefs, setFilamentPricingPrefs] = useState<Record<string, FilamentPricingPref>>(
+    () => initialSaved.filamentPricingPrefs || {}
+  );
+  const filamentPricingPrefsRef = useRef(filamentPricingPrefs);
+  useEffect(() => {
+    filamentPricingPrefsRef.current = filamentPricingPrefs;
+  }, [filamentPricingPrefs]);
 
   // 2. Multi-File Job Queue State (Default: Benchy model preloaded)
   const [files, setFiles] = useState<GcodeFileItem[]>([
@@ -86,26 +113,19 @@ export default function App() {
   const [isParsing, setIsParsing] = useState<boolean>(false);
   const [parseError, setParseError] = useState<string | null>(null);
 
-  // World Currency State (persisted to localStorage)
+  // World Currency State (persisted to storage & OrcaSlicer)
   const [currencyCode, setCurrencyCode] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem('layercost_currency_code');
-      return saved ? findCurrencyByCode(saved).code : 'USD';
-    } catch {
-      return 'USD';
-    }
+    const saved = initialSaved.currencyCode || safeGetItem('layercost_currency_code');
+    return saved ? findCurrencyByCode(saved).code : 'USD';
   });
   const activeCurrency = useMemo(() => findCurrencyByCode(currencyCode), [currencyCode]);
   const currencySymbol = activeCurrency.symbol;
 
   const handleCurrencyChange = (nextCode: string) => {
     const resolved = findCurrencyByCode(nextCode);
+    userModifiedRef.current = true;
     setCurrencyCode(resolved.code);
-    try {
-      localStorage.setItem('layercost_currency_code', resolved.code);
-    } catch {
-      // storage quota fallback
-    }
+    safeSetItem('layercost_currency_code', resolved.code);
   };
 
   const popularCurrencies = useMemo(
@@ -116,9 +136,31 @@ export default function App() {
     []
   );
 
-  // Selected Presets
-  const [selectedPrinterId, setSelectedPrinterId] = useState<string>('bambu-x1c');
-  const [selectedElectricityId, setSelectedElectricityId] = useState<string>('global-avg');
+  // Selected Presets & User Customizations
+  const [selectedPrinterId, setSelectedPrinterId] = useState<string>(
+    () => initialSaved.selectedPrinterId || 'bambu-x1c'
+  );
+  const [selectedElectricityId, setSelectedElectricityId] = useState<string>(
+    () => initialSaved.selectedElectricityId || 'global-avg'
+  );
+  const [printerCustomized, setPrinterCustomized] = useState<boolean>(
+    () => Boolean(initialSaved.printerCustomized)
+  );
+  const [printerOverrides, setPrinterOverrides] = useState<Record<string, PrinterOverrideSpec>>(
+    () => initialSaved.printerOverrides || {}
+  );
+  const selectedPrinterIdRef = useRef(selectedPrinterId);
+  const printerCustomizedRef = useRef(printerCustomized);
+  const printerOverridesRef = useRef(printerOverrides);
+  useEffect(() => {
+    selectedPrinterIdRef.current = selectedPrinterId;
+  }, [selectedPrinterId]);
+  useEffect(() => {
+    printerCustomizedRef.current = printerCustomized;
+  }, [printerCustomized]);
+  useEffect(() => {
+    printerOverridesRef.current = printerOverrides;
+  }, [printerOverrides]);
 
   // Active View Tab
   const [activeTab, setActiveTab] = useState<'calculator' | 'batch'>('calculator');
@@ -131,6 +173,10 @@ export default function App() {
 
   // OrcaSlicer Native Plugin Bridge State
   const inOrcaSlicer = useMemo(() => isRunningInOrcaSlicer(), []);
+  const orcaHydratedRef = useRef<boolean>(!inOrcaSlicer);
+  const userModifiedRef = useRef<boolean>(false);
+  const hasReceivedOrcaSliceRef = useRef<boolean>(false);
+
   const [isOrcaSlicing, setIsOrcaSlicing] = useState<boolean>(false);
   const [orcaAppendMode, setOrcaAppendMode] = useState<boolean>(false);
   const orcaAppendModeRef = useRef<boolean>(orcaAppendMode);
@@ -154,57 +200,155 @@ export default function App() {
 
   // Active Client & Project Metadata for Quote
   const [clientName, setClientName] = useState<string>(() => {
-    return localStorage.getItem('layercost_active_client') || 'Horizon Engineering Ltd';
+    return initialSaved.clientName || safeGetItem('layercost_active_client') || 'Horizon Engineering Ltd';
   });
   const [projectName, setProjectName] = useState<string>(() => {
-    return localStorage.getItem('layercost_active_project') || 'Custom Rapid Prototype Batch';
+    return initialSaved.projectName || safeGetItem('layercost_active_project') || 'Custom Rapid Prototype Batch';
   });
 
-  // Cost Parameters State (international USD baseline)
-  const [params, setParams] = useState<CostParameters>({
-    filaments: [],
-    filamentGrams: SAMPLE_GCODES[0].metadata.filamentGrams,
-    spoolPrice: 22.00, // per 1kg roll
-    spoolWeightGrams: 1000,
-    extraPurgeGrams: 0,
+  // Cost Parameters State (merged cleanly with any saved user edits)
+  const [params, setParams] = useState<CostParameters>(() => {
+    const sp = initialSaved.savedParams || {};
+    return {
+      filaments: [],
+      filamentGrams: SAMPLE_GCODES[0].metadata.filamentGrams,
+      spoolPrice: 22.00, // per 1kg roll
+      spoolWeightGrams: 1000,
+      extraPurgeGrams: 0,
 
-    printHours: Math.round((SAMPLE_GCODES[0].metadata.printTimeSeconds / 3600) * 100) / 100,
-    printerWatts: 180,
-    kwhRate: 0.18, // Global commercial average tariff
-    preheatKwh: 0.08,
+      printHours: Math.round((SAMPLE_GCODES[0].metadata.printTimeSeconds / 3600) * 100) / 100,
+      printerWatts: sp.printerWatts ?? 180,
+      kwhRate: sp.kwhRate ?? 0.18, // Global commercial average tariff
+      preheatKwh: sp.preheatKwh ?? 0.08,
 
-    printerCost: 1199, // Bambu X1-Carbon
-    printerLifespanHours: 4000,
-    salvageValue: 180,
+      printerCost: sp.printerCost ?? 1199, // Bambu X1-Carbon
+      printerLifespanHours: sp.printerLifespanHours ?? 4000,
+      salvageValue: sp.salvageValue ?? 180,
 
-    maintenanceHourlyRate: 0.40, // per print hour
-    prepConsumablesCost: 0.50, // IPA, bed adhesive
+      maintenanceHourlyRate: sp.maintenanceHourlyRate ?? 0.40, // per print hour
+      prepConsumablesCost: sp.prepConsumablesCost ?? 0.50, // IPA, bed adhesive
 
-    // 3D CAD Modeling & Client Review (Optional custom engineering)
-    enableCadService: false,
-    cadModelingHours: 1.5, // 1.5 hours modeling
-    cadReviewCycles: 1, // 1 client review round
-    cadReviewMinutesPerCycle: 30, // 30 mins review session
-    cadHourlyRate: 65.0, // per hour for CAD design
+      // 3D CAD Modeling & Client Review (Optional custom engineering)
+      enableCadService: sp.enableCadService ?? false,
+      cadModelingHours: sp.cadModelingHours ?? 1.5,
+      cadReviewCycles: sp.cadReviewCycles ?? 1,
+      cadReviewMinutesPerCycle: sp.cadReviewMinutesPerCycle ?? 30,
+      cadHourlyRate: sp.cadHourlyRate ?? 65.0,
 
-    // Slicing & Toolpath Generation
-    slicingMins: 10,
-    setupMins: 5,
-    removalMins: 4,
-    postProcessingMins: 8,
-    qaInspectionMins: 5, // Calipers, tolerance check, layer inspection
-    packagingMins: 5, // Boxing & labeling
-    laborHourlyRate: 28.0, // per hour workshop labor
+      // Slicing & Toolpath Generation
+      slicingMins: sp.slicingMins ?? 10,
+      setupMins: sp.setupMins ?? 5,
+      removalMins: sp.removalMins ?? 4,
+      postProcessingMins: sp.postProcessingMins ?? 8,
+      qaInspectionMins: sp.qaInspectionMins ?? 5,
+      packagingMins: sp.packagingMins ?? 5,
+      laborHourlyRate: sp.laborHourlyRate ?? 28.0,
 
-    failureRiskPercent: 10,
+      failureRiskPercent: sp.failureRiskPercent ?? 10,
 
-    enablePackaging: true, // Toggle for protective packaging
-    packagingCostPerUnit: 3.50, // Protective box & pouch
-    workshopOverheadPerPrint: 1.50,
+      enablePackaging: sp.enablePackaging ?? true,
+      packagingCostPerUnit: sp.packagingCostPerUnit ?? 3.50,
+      workshopOverheadPerPrint: sp.workshopOverheadPerPrint ?? 1.50,
 
-    markupPercent: 35,
-    quantity: 1, // Multiplier for job batches
+      markupPercent: sp.markupPercent ?? 35,
+      quantity: 1, // Multiplier for job batches
+    };
   });
+
+  // Persist user settings (filaments, electricity, printer, commercial params) to localStorage + OrcaSlicer storage
+  useEffect(() => {
+    if (!orcaHydratedRef.current && !userModifiedRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      let customFilaments: CustomFilamentPreset[] | undefined;
+      try {
+        const raw = safeGetItem(CUSTOM_FILAMENTS_STORAGE_KEY);
+        if (raw) customFilaments = JSON.parse(raw);
+      } catch {
+        // ignore
+      }
+
+      const { filaments: _ignoredFils, quantity: _ignoredQty, ...persistableParams } = params;
+      const snapshot: LayerCostSavedSettings = {
+        currencyCode,
+        selectedPrinterId,
+        selectedElectricityId,
+        printerCustomized,
+        printerOverrides,
+        savedParams: persistableParams,
+        filaments,
+        filamentPricingPrefs,
+        customFilaments,
+        clientName,
+        projectName,
+      };
+      saveSettingsToStorage(snapshot, inOrcaSlicer);
+    }, 150);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    currencyCode,
+    selectedPrinterId,
+    selectedElectricityId,
+    printerCustomized,
+    printerOverrides,
+    params,
+    filaments,
+    filamentPricingPrefs,
+    clientName,
+    projectName,
+    inOrcaSlicer,
+  ]);
+
+  const handleFilamentsChange = (nextFilaments: FilamentEntry[]) => {
+    userModifiedRef.current = true;
+    const nextPrefs = buildFilamentPricingPrefs(nextFilaments, filamentPricingPrefsRef.current);
+    filamentPricingPrefsRef.current = nextPrefs;
+    safeSetItem(FILAMENT_PREFS_STORAGE_KEY, JSON.stringify(nextPrefs));
+    setFilamentPricingPrefs(nextPrefs);
+    setFilaments(nextFilaments);
+  };
+
+  const handleCustomLibraryChange = (library: CustomFilamentPreset[]) => {
+    userModifiedRef.current = true;
+    const { filaments: _ignoredFils, quantity: _ignoredQty, ...persistableParams } = params;
+    saveSettingsToStorage(
+      {
+        currencyCode,
+        selectedPrinterId,
+        selectedElectricityId,
+        printerCustomized,
+        printerOverrides,
+        savedParams: persistableParams,
+        filaments,
+        filamentPricingPrefs,
+        customFilaments: library,
+        clientName,
+        projectName,
+      },
+      inOrcaSlicer
+    );
+  };
+
+  const updatePrinterParam = (updates: Partial<CostParameters>) => {
+    userModifiedRef.current = true;
+    setPrinterCustomized(true);
+    setParams((prev) => {
+      const next = { ...prev, ...updates };
+      setPrinterOverrides((prevMap) => ({
+        ...prevMap,
+        [selectedPrinterId]: {
+          printerWatts: next.printerWatts,
+          printerCost: next.printerCost,
+          printerLifespanHours: next.printerLifespanHours,
+          salvageValue: next.salvageValue,
+          maintenanceHourlyRate: next.maintenanceHourlyRate,
+          prepConsumablesCost: next.prepConsumablesCost,
+        },
+      }));
+      return next;
+    });
+  };
 
   // Active file derived from queue
   const activeFile = files.find((f) => f.id === activeFileId) || files[0] || null;
@@ -256,19 +400,25 @@ export default function App() {
 
   // Handle Preset Changes
   const handlePrinterSelect = (printerId: string) => {
+    userModifiedRef.current = true;
     setSelectedPrinterId(printerId);
+    setPrinterCustomized(true);
     const p = PRINTER_PRESETS.find((x) => x.id === printerId);
     if (!p) return;
+    const savedOverride = printerOverrides[printerId];
     setParams((prev) => ({
       ...prev,
-      printerWatts: p.avgWatts,
-      printerCost: p.purchasePrice,
-      printerLifespanHours: p.lifespanHours,
-      maintenanceHourlyRate: p.hourlyMaintenance,
+      printerWatts: savedOverride?.printerWatts ?? p.avgWatts,
+      printerCost: savedOverride?.printerCost ?? p.purchasePrice,
+      printerLifespanHours: savedOverride?.printerLifespanHours ?? p.lifespanHours,
+      salvageValue: savedOverride?.salvageValue ?? prev.salvageValue,
+      maintenanceHourlyRate: savedOverride?.maintenanceHourlyRate ?? p.hourlyMaintenance,
+      prepConsumablesCost: savedOverride?.prepConsumablesCost ?? prev.prepConsumablesCost,
     }));
   };
 
   const handleElectricitySelect = (regionId: string) => {
+    userModifiedRef.current = true;
     setSelectedElectricityId(regionId);
     const e = ELECTRICITY_PRESETS.find((x) => x.id === regionId);
     if (!e) return;
@@ -281,6 +431,58 @@ export default function App() {
   // Subscribe to OrcaSlicer Plugin lifecycle & post-slice data bridge
   useEffect(() => {
     const unsubscribe = subscribeOrcaMessages((msg) => {
+      if (msg.type === 'settings_loaded') {
+        const s = (msg.settings || {}) as LayerCostSavedSettings;
+        if (Object.keys(s).length > 0 && !userModifiedRef.current) {
+          if (s.filamentPricingPrefs) {
+            filamentPricingPrefsRef.current = s.filamentPricingPrefs;
+            safeSetItem(FILAMENT_PREFS_STORAGE_KEY, JSON.stringify(s.filamentPricingPrefs));
+            setFilamentPricingPrefs(s.filamentPricingPrefs);
+          }
+          if (s.customFilaments) {
+            safeSetItem(CUSTOM_FILAMENTS_STORAGE_KEY, JSON.stringify(s.customFilaments));
+          }
+          if (s.currencyCode) {
+            const resolved = findCurrencyByCode(s.currencyCode);
+            setCurrencyCode(resolved.code);
+            safeSetItem('layercost_currency_code', resolved.code);
+          }
+          if (s.selectedPrinterId) {
+            selectedPrinterIdRef.current = s.selectedPrinterId;
+            setSelectedPrinterId(s.selectedPrinterId);
+          }
+          if (s.selectedElectricityId) {
+            setSelectedElectricityId(s.selectedElectricityId);
+          }
+          if (typeof s.printerCustomized === 'boolean') {
+            printerCustomizedRef.current = s.printerCustomized;
+            setPrinterCustomized(s.printerCustomized);
+          }
+          if (s.printerOverrides) {
+            printerOverridesRef.current = s.printerOverrides;
+            setPrinterOverrides(s.printerOverrides);
+          }
+          if (s.savedParams) {
+            setParams((prev) => ({ ...prev, ...s.savedParams }));
+          }
+          if (s.filaments && s.filaments.length > 0 && !hasReceivedOrcaSliceRef.current) {
+            setFilaments(s.filaments);
+          }
+          if (s.clientName) {
+            setClientName(s.clientName);
+            safeSetItem('layercost_active_client', s.clientName);
+          }
+          if (s.projectName) {
+            setProjectName(s.projectName);
+            safeSetItem('layercost_active_project', s.projectName);
+          }
+          saveSettingsToStorage(s, false);
+          window.dispatchEvent(new CustomEvent('layercost-settings-hydrated', { detail: s }));
+        }
+        orcaHydratedRef.current = true;
+        return;
+      }
+
       if (msg.type === 'slicing_started') {
         setIsOrcaSlicing(true);
         setParseError(null);
@@ -298,6 +500,7 @@ export default function App() {
       }
 
       if (msg.type === 'no_slice_yet') {
+        hasReceivedOrcaSliceRef.current = true;
         setIsOrcaSlicing(false);
         const info = msg.hostInfo;
         setOrcaSyncBanner({
@@ -311,6 +514,7 @@ export default function App() {
       }
 
       if (msg.type === 'slice_complete' || msg.type === 'gcode_data') {
+        hasReceivedOrcaSliceRef.current = true;
         setIsOrcaSlicing(false);
         setParseError(null);
 
@@ -349,15 +553,19 @@ export default function App() {
           }
         }
 
-        if (converted.matchedPrinter) {
+        if (converted.matchedPrinter && !printerCustomizedRef.current) {
           const mp = converted.matchedPrinter;
+          const override = printerOverridesRef.current[mp.id];
+          selectedPrinterIdRef.current = mp.id;
           setSelectedPrinterId(mp.id);
           setParams((prev) => ({
             ...prev,
-            printerWatts: mp.avgWatts,
-            printerCost: mp.purchasePrice,
-            printerLifespanHours: mp.lifespanHours,
-            maintenanceHourlyRate: mp.hourlyMaintenance,
+            printerWatts: override?.printerWatts ?? mp.avgWatts,
+            printerCost: override?.printerCost ?? mp.purchasePrice,
+            printerLifespanHours: override?.printerLifespanHours ?? mp.lifespanHours,
+            salvageValue: override?.salvageValue ?? prev.salvageValue,
+            maintenanceHourlyRate: override?.maintenanceHourlyRate ?? mp.hourlyMaintenance,
+            prepConsumablesCost: override?.prepConsumablesCost ?? prev.prepConsumablesCost,
           }));
         }
 
@@ -389,11 +597,20 @@ export default function App() {
       }
     });
 
+    let retryTimer: number | undefined;
     if (isRunningInOrcaSlicer()) {
       postToOrca({ type: 'ready' });
+      retryTimer = window.setTimeout(() => {
+        if (!hasReceivedOrcaSliceRef.current) {
+          requestLatestSliceFromOrca();
+        }
+      }, 750);
     }
 
-    return unsubscribe;
+    return () => {
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      unsubscribe();
+    };
   }, []);
 
   // Add a sample model to the job queue
@@ -541,14 +758,11 @@ export default function App() {
     }));
 
     // 4. Set client and project metadata
+    userModifiedRef.current = true;
     setClientName(newClient);
     setProjectName(newProject || `Manufacturing Quote - ${newClient}`);
-    try {
-      localStorage.setItem('layercost_active_client', newClient);
-      if (newProject) localStorage.setItem('layercost_active_project', newProject);
-    } catch {
-      // quota fallback
-    }
+    safeSetItem('layercost_active_client', newClient);
+    if (newProject) safeSetItem('layercost_active_project', newProject);
   };
 
   const currentPrinter = PRINTER_PRESETS.find((p) => p.id === selectedPrinterId) || PRINTER_PRESETS[0];
@@ -973,10 +1187,11 @@ export default function App() {
               {/* Pillar 1: Multi-Filament & Material Manager */}
               <MultiFilamentManager
                 filaments={filaments}
-                onChangeFilaments={setFilaments}
+                onChangeFilaments={handleFilamentsChange}
                 files={files}
                 currencySymbol={currencySymbol}
                 batchMultiplier={params.quantity}
+                onCustomLibraryChange={handleCustomLibraryChange}
               />
 
               {/* Pillar 2: Electricity & Power Tariffs */}
@@ -1054,7 +1269,7 @@ export default function App() {
                       type="number"
                       step="5"
                       value={params.printerWatts}
-                      onChange={(e) => setParams({ ...params, printerWatts: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => updatePrinterParam({ printerWatts: parseFloat(e.target.value) || 0 })}
                       className="w-full bg-[#1e1e20] border border-[#45454a] rounded px-3 py-2 text-sm text-white font-mono focus:border-[#00ae42] focus:outline-hidden tabular-nums"
                     />
                     <span className="text-[10px] text-zinc-500 mt-0.5 block">Heated bed + hotend avg (120W–260W)</span>
@@ -1066,7 +1281,10 @@ export default function App() {
                       type="number"
                       step="0.05"
                       value={params.kwhRate}
-                      onChange={(e) => setParams({ ...params, kwhRate: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => {
+                        userModifiedRef.current = true;
+                        setParams((prev) => ({ ...prev, kwhRate: parseFloat(e.target.value) || 0 }));
+                      }}
                       className="w-full bg-[#1e1e20] border border-[#45454a] rounded px-3 py-2 text-sm text-white font-mono focus:border-[#00ae42] focus:outline-hidden tabular-nums"
                     />
                     <span className="text-[10px] text-zinc-500 mt-0.5 block">Utility Grid / Commercial / Solar Inverter</span>
@@ -1103,7 +1321,7 @@ export default function App() {
                     <input
                       type="number"
                       value={params.printerCost}
-                      onChange={(e) => setParams({ ...params, printerCost: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => updatePrinterParam({ printerCost: parseFloat(e.target.value) || 0 })}
                       className="w-full bg-[#1e1e20] border border-[#45454a] rounded px-3 py-2 text-sm text-white font-mono focus:border-[#00ae42] focus:outline-hidden tabular-nums"
                     />
                     <span className="text-[10px] text-zinc-500 mt-0.5 block">Hardware retail capital investment</span>
@@ -1115,7 +1333,7 @@ export default function App() {
                       type="number"
                       step="500"
                       value={params.printerLifespanHours}
-                      onChange={(e) => setParams({ ...params, printerLifespanHours: parseFloat(e.target.value) || 1 })}
+                      onChange={(e) => updatePrinterParam({ printerLifespanHours: parseFloat(e.target.value) || 1 })}
                       className="w-full bg-[#1e1e20] border border-[#45454a] rounded px-3 py-2 text-sm text-white font-mono focus:border-[#00ae42] focus:outline-hidden tabular-nums"
                     />
                     <span className="text-[10px] text-zinc-500 mt-0.5 block">Usually 3,000 to 5,000 hrs</span>
@@ -1127,7 +1345,7 @@ export default function App() {
                       type="number"
                       step="0.5"
                       value={params.maintenanceHourlyRate}
-                      onChange={(e) => setParams({ ...params, maintenanceHourlyRate: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => updatePrinterParam({ maintenanceHourlyRate: parseFloat(e.target.value) || 0 })}
                       className="w-full bg-[#1e1e20] border border-[#45454a] rounded px-3 py-2 text-sm text-white font-mono focus:border-[#00ae42] focus:outline-hidden tabular-nums"
                     />
                     <span className="text-[10px] text-zinc-500 mt-0.5 block">Nozzles, belts, PEI sheet, lube</span>
@@ -1139,7 +1357,7 @@ export default function App() {
                       type="number"
                       step="0.5"
                       value={params.prepConsumablesCost}
-                      onChange={(e) => setParams({ ...params, prepConsumablesCost: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => updatePrinterParam({ prepConsumablesCost: parseFloat(e.target.value) || 0 })}
                       className="w-full bg-[#1e1e20] border border-[#45454a] rounded px-3 py-2 text-sm text-white font-mono focus:border-[#00ae42] focus:outline-hidden tabular-nums"
                     />
                     <span className="text-[10px] text-zinc-500 mt-0.5 block">IPA alcohol, bed glue, wipes</span>
@@ -1741,12 +1959,14 @@ export default function App() {
         clientName={clientName}
         projectName={projectName}
         onClientNameChange={(name) => {
+          userModifiedRef.current = true;
           setClientName(name);
-          localStorage.setItem('layercost_active_client', name);
+          safeSetItem('layercost_active_client', name);
         }}
         onProjectNameChange={(name) => {
+          userModifiedRef.current = true;
           setProjectName(name);
-          localStorage.setItem('layercost_active_project', name);
+          safeSetItem('layercost_active_project', name);
         }}
         autoPrint={isAutoPrintQuote}
       />
