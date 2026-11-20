@@ -114,9 +114,10 @@
   }
 
   /* Reset root document viewport & scrolling */
-  html, body {
+  :root, html, body {
+    color-scheme: light !important;
     background: #ffffff !important;
-    color: #18181b !important;
+    color: #000000 !important;
     font-size: 10pt !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -163,7 +164,7 @@
     padding: 0 !important;
     margin: 0 !important;
     background: #ffffff !important;
-    color: #18181b !important;
+    color: #000000 !important;
     border: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
@@ -178,9 +179,45 @@
     padding: 0 !important;
     margin: 0 !important;
     background: #ffffff !important;
-    color: #18181b !important;
+    color: #000000 !important;
     box-shadow: none !important;
     border: none !important;
+  }
+
+  /* Guarantee Business Name, headings, and white/light screen text print as pure black */
+  .printable-quote-sheet .quote-business-name,
+  .printable-quote-sheet h1,
+  .printable-quote-sheet h2,
+  .printable-quote-sheet h3,
+  .printable-quote-sheet .print\:text-black,
+  .printable-quote-sheet .text-white,
+  .printable-quote-sheet .text-zinc-100,
+  .printable-quote-sheet .text-zinc-200,
+  .printable-quote-sheet .text-zinc-300 {
+    color: #000000 !important;
+  }
+
+  .printable-quote-sheet .text-zinc-400,
+  .printable-quote-sheet .text-zinc-500,
+  .printable-quote-sheet .print\:text-zinc-600,
+  .printable-quote-sheet .print\:text-zinc-700 {
+    color: #3f3f46 !important;
+  }
+
+  .printable-quote-sheet .print\:bg-white {
+    background-color: #ffffff !important;
+  }
+
+  .printable-quote-sheet .print\:bg-zinc-50 {
+    background-color: #fafafa !important;
+  }
+
+  .printable-quote-sheet .print\:bg-zinc-100 {
+    background-color: #f4f4f5 !important;
+  }
+
+  .printable-quote-sheet .print\:border-zinc-300 {
+    border-color: #d4d4d8 !important;
   }
 
   /* Prevent awkward page break splits */

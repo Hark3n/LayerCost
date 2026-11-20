@@ -30,6 +30,8 @@ interface QuoteModalProps {
   onTogglePackaging?: (enabled: boolean) => void;
   clientName?: string;
   projectName?: string;
+  onClientNameChange?: (name: string) => void;
+  onProjectNameChange?: (name: string) => void;
   autoPrint?: boolean;
 }
 
@@ -44,6 +46,8 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
   onTogglePackaging,
   clientName: initialClientName = '',
   projectName: initialProjectName = '',
+  onClientNameChange,
+  onProjectNameChange,
   autoPrint = false,
 }) => {
   const activeFiles = files && files.length > 0 ? files.filter((f) => f.enabled) : [];
@@ -94,6 +98,16 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
       setProjectName(initialProjectName);
     }
   }, [initialProjectName]);
+
+  const handleClientNameChange = (val: string) => {
+    setClientName(val);
+    onClientNameChange?.(val);
+  };
+
+  const handleProjectNameChange = (val: string) => {
+    setProjectName(val);
+    onProjectNameChange?.(val);
+  };
   const [taxRate, setTaxRate] = useState<number>(15.0); // Standard VAT / Sales Tax (%)
   const [isClientView, setIsClientView] = useState<boolean>(true);
   const [copied, setCopied] = useState<boolean>(false);
@@ -324,11 +338,11 @@ Notes: ${notes}
     .company h1 {
       margin: 0 0 4px 0;
       font-size: 20px;
-      color: #18181b;
+      color: #000000;
     }
     .company p {
       margin: 0;
-      color: #71717a;
+      color: #3f3f46;
       font-size: 12px;
     }
     .meta {
@@ -355,14 +369,14 @@ Notes: ${notes}
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      color: #71717a;
+      color: #52525b;
       font-weight: 600;
       margin-bottom: 3px;
     }
     .info-block div {
       font-size: 13px;
       font-weight: 600;
-      color: #18181b;
+      color: #000000;
     }
     .info-block span {
       display: block;
@@ -782,7 +796,7 @@ Notes: ${notes}
         <div className="p-6 overflow-y-auto space-y-6 printable-quote printable-quote-sheet">
           {/* Metadata Inputs (Editable in UI) */}
           <div className="bg-[#232325] p-3.5 rounded border border-[#3a3a3f] space-y-3 print:hidden no-print">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
               <div>
                 <label className="block text-[11px] text-zinc-400 mb-1">Business Name</label>
                 <input
@@ -807,10 +821,23 @@ Notes: ${notes}
                 <input
                   type="text"
                   value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
+                  onChange={(e) => handleClientNameChange(e.target.value)}
                   className="w-full bg-[#1e1e20] border border-[#45454a] rounded px-2.5 py-1.5 text-xs text-white focus:border-[#00ae42] focus:outline-hidden"
                 />
               </div>
+              <div>
+                <label className="block text-[11px] text-zinc-400 mb-1">Project Name / Summary</label>
+                <input
+                  type="text"
+                  value={projectName}
+                  onChange={(e) => handleProjectNameChange(e.target.value)}
+                  placeholder="e.g. Custom Rapid Prototype Batch"
+                  className="w-full bg-[#1e1e20] border border-[#45454a] rounded px-2.5 py-1.5 text-xs text-white focus:border-[#00ae42] focus:outline-hidden"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
               <div>
                 <label className="block text-[11px] text-zinc-400 mb-1">Packaging Option</label>
                 {onTogglePackaging ? (
@@ -979,7 +1006,7 @@ Notes: ${notes}
                   </div>
                 )}
                 <div>
-                  <h1 className="text-xl font-bold tracking-tight text-white print:text-black">{businessName}</h1>
+                  <h1 className="text-xl font-bold tracking-tight text-white print:!text-black quote-business-name">{businessName}</h1>
                   <p className="text-xs text-zinc-400 print:text-zinc-600 mt-0.5">
                     Additive Manufacturing & Rapid Prototyping {vatNumber ? `· VAT No: ${vatNumber}` : ''}
                   </p>
@@ -995,11 +1022,18 @@ Notes: ${notes}
             <div className="grid grid-cols-2 gap-4 py-4 text-xs border-b border-[#3a3a3f] print:border-zinc-300">
               <div>
                 <span className="text-zinc-500 block uppercase tracking-wider text-[10px]">Client / Recipient</span>
-                <span className="font-semibold text-white print:text-black">{clientName}</span>
+                <span className="font-semibold text-white print:!text-black">{clientName}</span>
               </div>
               <div>
                 <span className="text-zinc-500 block uppercase tracking-wider text-[10px]">Project / Order Summary</span>
-                <span className="font-semibold text-white print:text-black">{projectName}</span>
+                <input
+                  type="text"
+                  value={projectName}
+                  onChange={(e) => handleProjectNameChange(e.target.value)}
+                  aria-label="Project Name or Summary"
+                  className="w-full font-semibold text-white bg-transparent border border-transparent hover:border-[#45454a] focus:border-[#00ae42] focus:bg-[#1e1e20] rounded px-1.5 py-0.5 -ml-1.5 focus:outline-hidden transition-colors print:hidden"
+                />
+                <span className="hidden print:inline font-semibold text-black">{projectName}</span>
                 <span className="text-zinc-400 print:text-zinc-600 block text-[11px]">
                   {activeFiles.length > 0 ? `${activeFiles.length} file(s) · ${totalBatchUnits} total parts` : (metadata?.dimensions ? `${metadata.dimensions.width}×${metadata.dimensions.depth}×${metadata.dimensions.height} mm` : '')}
                 </span>
@@ -1498,12 +1532,12 @@ Notes: ${notes}
                     </div>
                   ) : (
                     <div className="space-y-0.5 text-zinc-400 print:text-zinc-700 font-mono text-[10px]">
-                      <div>Bank: <strong className="text-zinc-200 print:text-black">{bankName}</strong></div>
-                      <div>Account Name: <strong className="text-zinc-200 print:text-black">{businessName}</strong></div>
-                      <div>Account Number: <strong className="text-[#f58220] print:text-black font-bold tracking-wide">{accountNumber}</strong></div>
-                      <div>Account Type: <strong className="text-zinc-200 print:text-black">{accountType}</strong></div>
-                      <div>Branch / Routing: <strong className="text-zinc-200 print:text-black">{branchCode}</strong></div>
-                      <div>Payment Reference: <strong className="text-[#f58220] print:text-black font-bold">{quoteNumber}</strong></div>
+                      <div>Bank: <strong className="text-zinc-200 print:!text-black">{bankName}</strong></div>
+                      <div>Account Name: <strong className="text-zinc-200 print:!text-black quote-business-name">{businessName}</strong></div>
+                      <div>Account Number: <strong className="text-[#f58220] print:!text-black font-bold tracking-wide">{accountNumber}</strong></div>
+                      <div>Account Type: <strong className="text-zinc-200 print:!text-black">{accountType}</strong></div>
+                      <div>Branch / Routing: <strong className="text-zinc-200 print:!text-black">{branchCode}</strong></div>
+                      <div>Payment Reference: <strong className="text-[#f58220] print:!text-black font-bold">{quoteNumber}</strong></div>
                     </div>
                   )}
 
@@ -1511,7 +1545,7 @@ Notes: ${notes}
                   {isEditingBankDetails && (
                     <div className="hidden print:block space-y-0.5 text-zinc-700 font-mono text-[10px]">
                       <div>Bank: <strong className="text-black">{bankName}</strong></div>
-                      <div>Account Name: <strong className="text-black">{businessName}</strong></div>
+                      <div>Account Name: <strong className="text-black quote-business-name">{businessName}</strong></div>
                       <div>Account Number: <strong className="text-black font-bold tracking-wide">{accountNumber}</strong></div>
                       <div>Account Type: <strong className="text-black">{accountType}</strong></div>
                       <div>Branch / Routing: <strong className="text-black">{branchCode}</strong></div>
@@ -1559,7 +1593,7 @@ Notes: ${notes}
             </div>
 
             {/* Document Print Footer */}
-            <div className="hidden print:block mt-6 pt-3 border-t border-zinc-200 text-center text-[9px] text-zinc-500 font-mono print-avoid-break">
+            <div className="hidden print:block mt-6 pt-3 border-t border-zinc-200 text-center text-[9px] text-zinc-700 print:text-black font-mono print-avoid-break">
               Commercial Quotation {quoteNumber} · Issued by {businessName} · LayerCost Additive Manufacturing Platform
             </div>
           </div>

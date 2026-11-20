@@ -1740,6 +1740,14 @@ export default function App() {
         onTogglePackaging={(enabled) => setParams((prev) => ({ ...prev, enablePackaging: enabled }))}
         clientName={clientName}
         projectName={projectName}
+        onClientNameChange={(name) => {
+          setClientName(name);
+          localStorage.setItem('layercost_active_client', name);
+        }}
+        onProjectNameChange={(name) => {
+          setProjectName(name);
+          localStorage.setItem('layercost_active_project', name);
+        }}
         autoPrint={isAutoPrintQuote}
       />
 
