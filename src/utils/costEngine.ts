@@ -1,4 +1,4 @@
-import { CostParameters, CostBreakdown } from '../types/calculator';
+import { CostParameters, CostBreakdown, GcodeFileItem, PartCostItem } from '../types/calculator';
 
 export function calculatePrintCosts(params: CostParameters): CostBreakdown {
   const qty = Math.max(1, params.quantity || 1);
@@ -231,3 +231,153 @@ export function calculatePrintCosts(params: CostParameters): CostBreakdown {
     costPercentages,
   };
 }
+
+/**
+ * Computes an itemized cost breakdown for each active part/plate in the job queue
+ * so the sum of part line totals reconciles cleanly with the production portion of the quote.
+ */
+export function calculatePartCostItems(
+  activeFiles: GcodeFileItem[],
+  params: CostParameters,
+  breakdown: CostBreakdown
+): PartCostItem[] {
+  if (!activeFiles || activeFiles.length === 0) return [];
+
+  const batchMult = Math.max(1, params.quantity || 1);
+  const setupRemovalCost = Math.max(
+    0,
+    breakdown.workshopLaborCost -
+      breakdown.postProcessingCost -
+      breakdown.qaInspectionCost -
+      breakdown.packagingLaborCost
+  );
+
+  const rawEntries = activeFiles.map((file) => {
+    const qty = Math.max(1, file.quantity || 1) * batchMult;
+    const printSeconds = Math.max(0, file.metadata.printTimeSeconds || 0) * qty;
+    const gramsPerUnit = Math.max(0, file.metadata.filamentGrams || 0);
+    const totalGrams = gramsPerUnit * qty;
+
+    const assignedSpool =
+      params.filaments.find((f) => f.id === file.assignedFilamentId) ||
+      params.filaments[0];
+
+    let rawMatCost = 0;
+    if (
+      file.metadata.multiFilaments &&
+      file.metadata.multiFilaments.length > 0 &&
+      params.filaments.length > 0
+    ) {
+      rawMatCost = file.metadata.multiFilaments.reduce((acc, mf) => {
+        const slotSpool =
+          params.filaments[mf.slot - 1] ||
+          params.filaments.find(
+            (s) => mf.type && s.type.toUpperCase() === mf.type.toUpperCase()
+          ) ||
+          assignedSpool;
+        const rate = slotSpool
+          ? (slotSpool.spoolPrice || 0) / Math.max(1, slotSpool.spoolWeightGrams || 1000)
+          : (params.spoolPrice || 0) / Math.max(1, params.spoolWeightGrams || 1000);
+        return acc + Math.max(0, mf.grams || 0) * qty * rate;
+      }, 0);
+    } else {
+      const rate = assignedSpool
+        ? (assignedSpool.spoolPrice || 0) / Math.max(1, assignedSpool.spoolWeightGrams || 1000)
+        : (params.spoolPrice || 0) / Math.max(1, params.spoolWeightGrams || 1000);
+      rawMatCost = totalGrams * rate;
+    }
+
+    const filamentLabel =
+      file.metadata.multiFilaments && file.metadata.multiFilaments.length > 1
+        ? file.metadata.multiFilaments
+            .map((m) => m.type || `Slot ${m.slot}`)
+            .filter((v, idx, arr) => arr.indexOf(v) === idx)
+            .join(' + ')
+        : assignedSpool
+          ? `${assignedSpool.name} (${assignedSpool.type})`
+          : file.metadata.filamentType || 'Thermoplastic';
+
+    const cleanPartName =
+      file.fileName.replace(/\.(gcode(\.3mf)?|3mf)$/i, '').trim() || file.fileName;
+
+    return {
+      file,
+      partName: cleanPartName,
+      qty,
+      printSeconds,
+      gramsPerUnit,
+      totalGrams,
+      rawMatCost,
+      filamentLabel,
+    };
+  });
+
+  const totalUnits = rawEntries.reduce((acc, e) => acc + e.qty, 0);
+  const totalSeconds = rawEntries.reduce((acc, e) => acc + e.printSeconds, 0);
+  const totalRawMat = rawEntries.reduce((acc, e) => acc + e.rawMatCost, 0);
+  const totalGramsAll = rawEntries.reduce((acc, e) => acc + e.totalGrams, 0);
+
+  const timeMachinePool =
+    breakdown.electricityCost + breakdown.depreciationCost + breakdown.maintenanceCost;
+  const unitFixedPool =
+    breakdown.prepConsumablesCost +
+    setupRemovalCost +
+    (breakdown.enablePackaging ? 0 : breakdown.workshopOverheadCost);
+
+  const directBases = rawEntries.map((entry) => {
+    const unitShare = entry.qty / Math.max(1, totalUnits);
+    const matShare =
+      totalRawMat > 0
+        ? entry.rawMatCost / totalRawMat
+        : totalGramsAll > 0
+          ? entry.totalGrams / totalGramsAll
+          : unitShare;
+    const timeShare = totalSeconds > 0 ? entry.printSeconds / totalSeconds : unitShare;
+
+    const materialCost = breakdown.totalMaterialCost * matShare;
+    const machineCost = timeMachinePool * timeShare + unitFixedPool * unitShare;
+    return {
+      materialCost,
+      machineCost,
+      directBase: materialCost + machineCost,
+      unitShare,
+    };
+  });
+
+  const totalDirectBase = directBases.reduce((acc, d) => acc + d.directBase, 0);
+  const riskAndMarginPool =
+    breakdown.failureBufferCost +
+    breakdown.profitAmount * 0.7 +
+    (breakdown.enablePackaging ? 0 : breakdown.profitAmount * 0.12);
+
+  return rawEntries.map((entry, idx) => {
+    const base = directBases[idx];
+    const baseShare = totalDirectBase > 0 ? base.directBase / totalDirectBase : base.unitShare;
+    const lineTotal = base.directBase + riskAndMarginPool * baseShare;
+    const unitPrice = lineTotal / Math.max(1, entry.qty);
+
+    return {
+      id: entry.file.id,
+      partName: entry.partName,
+      fileName: entry.file.fileName,
+      quantity: entry.qty,
+      printTimeSeconds: entry.file.metadata.printTimeSeconds,
+      printTimeFormatted: entry.file.metadata.printTimeFormatted,
+      filamentGramsPerUnit: entry.gramsPerUnit,
+      totalFilamentGrams: entry.totalGrams,
+      filamentLabel: entry.filamentLabel,
+      dimensions: entry.file.metadata.dimensions
+        ? {
+            width: entry.file.metadata.dimensions.width,
+            depth: entry.file.metadata.dimensions.depth,
+            height: entry.file.metadata.dimensions.height,
+          }
+        : undefined,
+      materialCost: base.materialCost,
+      machineCost: base.machineCost,
+      unitPrice,
+      lineTotal,
+    };
+  });
+}
+

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CostBreakdown, CostParameters, GcodeMetadata, GcodeFileItem } from '../types/calculator';
+import { calculatePartCostItems } from '../utils/costEngine';
 import { isRunningInOrcaSlicer, saveInvoiceViaOrca } from '../utils/orcaBridge';
 import {
   Printer,
@@ -51,9 +52,11 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
   autoPrint = false,
 }) => {
   const activeFiles = files && files.length > 0 ? files.filter((f) => f.enabled) : [];
+  const batchMultiplier = Math.max(1, params.quantity || 1);
   const totalBatchUnits = activeFiles.length > 0
-    ? activeFiles.reduce((acc, f) => acc + f.quantity, 0)
+    ? activeFiles.reduce((acc, f) => acc + f.quantity, 0) * batchMultiplier
     : params.quantity;
+  const partCosts = calculatePartCostItems(activeFiles, params, breakdown);
 
   const [businessName, setBusinessName] = useState(() => {
     return localStorage.getItem('layercost_business_name') || 'Apex Additive Solutions';
@@ -252,9 +255,9 @@ Client Review Sessions: ${params.cadReviewCycles} round(s) (${params.cadReviewMi
 `
       : '';
 
-    const filesText = activeFiles.length > 0
-      ? `Files (${activeFiles.length} files, ${totalBatchUnits} units total):\n` +
-        activeFiles.map((f) => `  - ${f.fileName} (Qty: ${f.quantity}, ${f.metadata.printTimeFormatted}, ${f.metadata.filamentGrams}g)`).join('\n') + '\n'
+    const filesText = partCosts.length > 0
+      ? `Parts Breakdown (${partCosts.length} part${partCosts.length > 1 ? 's' : ''}, ${totalBatchUnits} units total):\n` +
+        partCosts.map((p) => `  - ${p.partName} (Qty: ${p.quantity}, ${p.printTimeFormatted}, ${p.filamentGramsPerUnit}g/ea): ${currencySymbol}${p.unitPrice.toFixed(2)}/ea = ${currencySymbol}${p.lineTotal.toFixed(2)}`).join('\n') + '\n'
       : '';
 
     const materialsText = breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 0
@@ -548,14 +551,14 @@ Notes: ${notes}
         : (metadata?.dimensions ? `<span>Dimensions: ${metadata.dimensions.width}×${metadata.dimensions.depth}×${metadata.dimensions.height} mm</span>` : '')
       }
     </div>
-    ${activeFiles.length > 1 ? `
+    ${partCosts.length > 0 ? `
     <div class="info-block" style="grid-column: span 2; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px;">
-      <label>G-Code Files & Components Roster (${activeFiles.length} Files · ${totalBatchUnits} Total Parts)</label>
+      <label>Parts & Cost Breakdown (${partCosts.length} Part${partCosts.length > 1 ? 's' : ''} · ${totalBatchUnits} Total Units)</label>
       <div style="font-weight: normal; font-size: 11px; margin-top: 4px;">
-        ${activeFiles.map((f) => `
-          <div style="display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dashed #e2e8f0;">
-            <span><strong>${f.fileName}</strong> (${f.metadata.printTimeFormatted}, ${f.metadata.filamentGrams}g/unit${f.metadata.dimensions ? ` · ${f.metadata.dimensions.width}×${f.metadata.dimensions.depth}×${f.metadata.dimensions.height}mm` : ''})</span>
-            <span style="font-family: monospace; font-weight: 600;">Qty: ${f.quantity}</span>
+        ${partCosts.map((p) => `
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 0; border-bottom: 1px dashed #e2e8f0;">
+            <span><strong style="color: #000000;">${p.partName}</strong> <span style="color: #52525b;">(${p.printTimeFormatted}, ${p.filamentGramsPerUnit}g/ea · ${p.filamentLabel}${p.dimensions ? ` · ${p.dimensions.width}×${p.dimensions.depth}×${p.dimensions.height}mm` : ''})</span></span>
+            <span style="font-family: ui-monospace, monospace; white-space: nowrap; color: #000000;">Qty: <strong>${p.quantity}</strong> · ${currencySymbol}${p.unitPrice.toFixed(2)}/ea · <strong>${currencySymbol}${p.lineTotal.toFixed(2)}</strong></span>
           </div>
         `).join('')}
       </div>
@@ -602,28 +605,42 @@ Notes: ${notes}
         <td class="num">${currencySymbol}${breakdown.slicingCost.toFixed(2)}</td>
         <td class="num font-bold"><strong>${currencySymbol}${breakdown.slicingCost.toFixed(2)}</strong></td>
       </tr>
-      ${breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 1 ? `
-        ${breakdown.filamentItemCosts.map((m) => `
+      ${partCosts.length > 0 ? `
+        ${partCosts.map((p, idx) => `
         <tr>
           <td>
-            <span class="item-title">Material: ${m.name} <span class="tag">${m.type}</span></span>
-            <div class="item-desc">Net: ${m.gramsUsed.toFixed(1)}g${m.purgeGrams > 0 ? ` + Purge waste: ${m.purgeGrams.toFixed(1)}g` : ''} · Total: ${m.totalGrams.toFixed(1)}g consumption (@ ${currencySymbol}${m.spoolPrice}/${m.spoolWeightGrams}g spool)</div>
+            <span class="item-title">Part: ${p.partName} <span class="tag">Part ${idx + 1}</span></span>
+            <div class="item-desc">3D Printed Component · ${p.printTimeFormatted}/ea · ${p.filamentGramsPerUnit}g/ea (${p.filamentLabel})${p.dimensions ? ` · ${p.dimensions.width}×${p.dimensions.depth}×${p.dimensions.height} mm` : ''}</div>
           </td>
-          <td class="center">${m.totalGrams.toFixed(1)}g</td>
-          <td class="num">${currencySymbol}${(m.cost / Math.max(1, totalBatchUnits)).toFixed(2)}</td>
-          <td class="num font-bold"><strong>${currencySymbol}${m.cost.toFixed(2)}</strong></td>
+          <td class="center">${p.quantity}</td>
+          <td class="num">${currencySymbol}${p.unitPrice.toFixed(2)}</td>
+          <td class="num font-bold"><strong>${currencySymbol}${p.lineTotal.toFixed(2)}</strong></td>
         </tr>
         `).join('')}
-      ` : ''}
-      <tr>
-        <td>
-          <span class="item-title">Industrial FDM 3D Printing Production</span>
-          <div class="item-desc">Additive manufacturing machine run (${(params.printHours).toFixed(1)} total machine hours${breakdown.filamentItemCosts && breakdown.filamentItemCosts.length === 1 ? ` · ${breakdown.filamentItemCosts[0].name} ${breakdown.filamentItemCosts[0].totalGrams.toFixed(1)}g` : ''})</div>
-        </td>
-        <td class="center">${totalBatchUnits}</td>
-        <td class="num">${currencySymbol}${(((breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 1 ? 0 : breakdown.totalMaterialCost) + breakdown.totalMachineCost + breakdown.failureBufferCost + (breakdown.profitAmount * 0.7)) / Math.max(1, totalBatchUnits)).toFixed(2)}</td>
-        <td class="num font-bold"><strong>${currencySymbol}${(((breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 1 ? 0 : breakdown.totalMaterialCost) + breakdown.totalMachineCost + breakdown.failureBufferCost + (breakdown.profitAmount * 0.7))).toFixed(2)}</strong></td>
-      </tr>
+      ` : `
+        ${breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 1 ? `
+          ${breakdown.filamentItemCosts.map((m) => `
+          <tr>
+            <td>
+              <span class="item-title">Material: ${m.name} <span class="tag">${m.type}</span></span>
+              <div class="item-desc">Net: ${m.gramsUsed.toFixed(1)}g${m.purgeGrams > 0 ? ` + Purge waste: ${m.purgeGrams.toFixed(1)}g` : ''} · Total: ${m.totalGrams.toFixed(1)}g consumption (@ ${currencySymbol}${m.spoolPrice}/${m.spoolWeightGrams}g spool)</div>
+            </td>
+            <td class="center">${m.totalGrams.toFixed(1)}g</td>
+            <td class="num">${currencySymbol}${(m.cost / Math.max(1, totalBatchUnits)).toFixed(2)}</td>
+            <td class="num font-bold"><strong>${currencySymbol}${m.cost.toFixed(2)}</strong></td>
+          </tr>
+          `).join('')}
+        ` : ''}
+        <tr>
+          <td>
+            <span class="item-title">Industrial FDM 3D Printing Production</span>
+            <div class="item-desc">Additive manufacturing machine run (${(params.printHours).toFixed(1)} total machine hours${breakdown.filamentItemCosts && breakdown.filamentItemCosts.length === 1 ? ` · ${breakdown.filamentItemCosts[0].name} ${breakdown.filamentItemCosts[0].totalGrams.toFixed(1)}g` : ''})</div>
+          </td>
+          <td class="center">${totalBatchUnits}</td>
+          <td class="num">${currencySymbol}${(((breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 1 ? 0 : breakdown.totalMaterialCost) + breakdown.totalMachineCost + breakdown.failureBufferCost + (breakdown.profitAmount * 0.7) + (!breakdown.enablePackaging ? breakdown.workshopOverheadCost + breakdown.profitAmount * 0.12 : 0)) / Math.max(1, totalBatchUnits)).toFixed(2)}</td>
+          <td class="num font-bold"><strong>${currencySymbol}${(((breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 1 ? 0 : breakdown.totalMaterialCost) + breakdown.totalMachineCost + breakdown.failureBufferCost + (breakdown.profitAmount * 0.7) + (!breakdown.enablePackaging ? breakdown.workshopOverheadCost + breakdown.profitAmount * 0.12 : 0))).toFixed(2)}</strong></td>
+        </tr>
+      `}
       <tr>
         <td>
           <span class="item-title">Post-Processing & Support Removal</span>
@@ -1039,21 +1056,27 @@ Notes: ${notes}
                 </span>
               </div>
 
-              {activeFiles.length > 1 && (
+              {partCosts.length > 0 && (
                 <div className="col-span-2 p-2.5 bg-[#1e1e20] rounded border border-[#3f3f44] print:border-zinc-300 print:bg-zinc-50 text-[11px]">
                   <div className="font-semibold text-zinc-300 print:text-black mb-1.5 flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
-                      <Box className="w-3.5 h-3.5 text-[#00c44b]" />
-                      <span>G-Code File Roster ({activeFiles.length} files · {totalBatchUnits} parts total)</span>
+                      <Box className="w-3.5 h-3.5 text-[#00c44b] print:text-black" />
+                      <span>Parts & Cost Breakdown ({partCosts.length} part{partCosts.length > 1 ? 's' : ''} · {totalBatchUnits} units total)</span>
                     </span>
-                    <span className="font-mono text-[10px] text-[#26b4b0]">{params.printHours.toFixed(1)} machine hrs</span>
+                    <span className="font-mono text-[10px] text-[#26b4b0] print:text-black">{params.printHours.toFixed(1)} machine hrs</span>
                   </div>
-                  <div className="space-y-1 max-h-32 print:max-h-none overflow-y-auto print:overflow-visible font-mono text-zinc-400 print:text-zinc-600 pr-1">
-                    {activeFiles.map((f) => (
-                      <div key={f.id} className="flex justify-between items-center py-1 border-b border-[#3a3a3f] last:border-none">
-                        <span className="truncate pr-2 font-sans text-zinc-200 print:text-black">{f.fileName}</span>
-                        <span className="shrink-0 text-zinc-400 font-mono text-[10px]">
-                          Qty: <strong className="text-white print:text-black">{f.quantity}</strong> ({f.metadata.printTimeFormatted}, {f.metadata.filamentGrams}g/ea)
+                  <div className="space-y-1 max-h-40 print:max-h-none overflow-y-auto print:overflow-visible font-mono text-zinc-400 print:text-black pr-1">
+                    {partCosts.map((p) => (
+                      <div key={p.id} className="flex flex-wrap justify-between items-center gap-2 py-1 border-b border-[#3a3a3f] print:border-zinc-200 last:border-none">
+                        <div className="min-w-0 flex-1 pr-2">
+                          <span className="font-sans font-medium text-zinc-100 print:text-black truncate block">{p.partName}</span>
+                          <span className="font-sans text-[10px] text-zinc-400 print:text-zinc-600 block truncate">
+                            {p.printTimeFormatted}/ea · {p.filamentGramsPerUnit}g/ea · {p.filamentLabel}
+                            {p.dimensions ? ` · ${p.dimensions.width}×${p.dimensions.depth}×${p.dimensions.height}mm` : ''}
+                          </span>
+                        </div>
+                        <span className="shrink-0 text-zinc-300 print:text-black font-mono text-[10px] tabular-nums">
+                          Qty: <strong className="text-white print:text-black">{p.quantity}</strong> · @ {currencySymbol}{p.unitPrice.toFixed(2)} · <strong className="text-[#00c44b] print:text-black">{currencySymbol}{p.lineTotal.toFixed(2)}</strong>
                         </span>
                       </div>
                     ))}
@@ -1139,56 +1162,84 @@ Notes: ${notes}
                         </td>
                       </tr>
 
-                      {/* Multi-Filament Itemized Materials (If multi-filament) */}
-                      {breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 1 && (
-                        breakdown.filamentItemCosts.map((m) => (
-                          <tr key={m.id}>
+                      {partCosts.length > 0 ? (
+                        partCosts.map((p, idx) => (
+                          <tr key={p.id}>
                             <td className="py-3 text-left">
-                              <span className="font-sans font-medium text-white print:text-black flex items-center gap-2">
-                                {m.colorHex && (
-                                  <span
-                                    className="w-2.5 h-2.5 rounded-full border border-white/20 shrink-0"
-                                    style={{ backgroundColor: m.colorHex }}
-                                  />
-                                )}
-                                <span>Material: {m.name}</span>
-                                <span className="text-[10px] px-1.5 py-0.5 bg-zinc-800 text-sky-400 rounded border border-zinc-700 font-mono print:bg-zinc-100 print:border-zinc-300 print:text-zinc-800">
-                                  {m.type}
+                              <span className="font-sans font-medium text-white print:text-black flex items-center gap-1.5 flex-wrap">
+                                <span>Part: {p.partName}</span>
+                                <span className="text-[10px] px-1.5 py-0.5 bg-[#1e1e20] text-[#26b4b0] rounded border border-[#3f3f44] font-mono print:bg-zinc-100 print:border-zinc-300 print:text-black">
+                                  Part {idx + 1}
                                 </span>
                               </span>
                               <span className="font-sans text-[11px] text-zinc-400 print:text-zinc-600 block">
-                                Net: {m.gramsUsed.toFixed(1)}g{m.purgeGrams > 0 ? ` + Purge waste: ${m.purgeGrams.toFixed(1)}g` : ''} · Total: {m.totalGrams.toFixed(1)}g spool consumption (@ {currencySymbol}{m.spoolPrice}/{m.spoolWeightGrams}g spool)
+                                3D Printed Component · {p.printTimeFormatted}/ea · {p.filamentGramsPerUnit}g/ea ({p.filamentLabel})
+                                {p.dimensions ? ` · ${p.dimensions.width}×${p.dimensions.depth}×${p.dimensions.height} mm` : ''}
                               </span>
                             </td>
-                            <td className="py-3 text-center text-zinc-300 print:text-black">{m.totalGrams.toFixed(1)}g</td>
+                            <td className="py-3 text-center text-zinc-300 print:text-black tabular-nums">{p.quantity}</td>
                             <td className="py-3 text-right text-zinc-300 print:text-black tabular-nums">
-                              {currencySymbol}{(m.cost / Math.max(1, totalBatchUnits)).toFixed(2)}
+                              {currencySymbol}{p.unitPrice.toFixed(2)}
                             </td>
                             <td className="py-3 text-right font-semibold text-white print:text-black tabular-nums">
-                              {currencySymbol}{m.cost.toFixed(2)}
+                              {currencySymbol}{p.lineTotal.toFixed(2)}
                             </td>
                           </tr>
                         ))
-                      )}
+                      ) : (
+                        <>
+                          {/* Multi-Filament Itemized Materials (Fallback when no active part items) */}
+                          {breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 1 && (
+                            breakdown.filamentItemCosts.map((m) => (
+                              <tr key={m.id}>
+                                <td className="py-3 text-left">
+                                  <span className="font-sans font-medium text-white print:text-black flex items-center gap-2">
+                                    {m.colorHex && (
+                                      <span
+                                        className="w-2.5 h-2.5 rounded-full border border-white/20 shrink-0"
+                                        style={{ backgroundColor: m.colorHex }}
+                                      />
+                                    )}
+                                    <span>Material: {m.name}</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 bg-zinc-800 text-sky-400 rounded border border-zinc-700 font-mono print:bg-zinc-100 print:border-zinc-300 print:text-zinc-800">
+                                      {m.type}
+                                    </span>
+                                  </span>
+                                  <span className="font-sans text-[11px] text-zinc-400 print:text-zinc-600 block">
+                                    Net: {m.gramsUsed.toFixed(1)}g{m.purgeGrams > 0 ? ` + Purge waste: ${m.purgeGrams.toFixed(1)}g` : ''} · Total: {m.totalGrams.toFixed(1)}g spool consumption (@ {currencySymbol}{m.spoolPrice}/{m.spoolWeightGrams}g spool)
+                                  </span>
+                                </td>
+                                <td className="py-3 text-center text-zinc-300 print:text-black">{m.totalGrams.toFixed(1)}g</td>
+                                <td className="py-3 text-right text-zinc-300 print:text-black tabular-nums">
+                                  {currencySymbol}{(m.cost / Math.max(1, totalBatchUnits)).toFixed(2)}
+                                </td>
+                                <td className="py-3 text-right font-semibold text-white print:text-black tabular-nums">
+                                  {currencySymbol}{m.cost.toFixed(2)}
+                                </td>
+                              </tr>
+                            ))
+                          )}
 
-                      {/* 3D Printing Production Machine Time */}
-                      <tr>
-                        <td className="py-3 text-left">
-                          <span className="font-sans font-medium text-white print:text-black block">
-                            Industrial FDM 3D Printing Production
-                          </span>
-                          <span className="font-sans text-[11px] text-zinc-400 print:text-zinc-600">
-                            Machine runtime ({params.printHours.toFixed(1)} total machine hours{(!breakdown.filamentItemCosts || breakdown.filamentItemCosts.length <= 1) ? ` · ${metadata?.filamentType || 'Thermoplastic'}` : ''}, {metadata?.layerHeightMm || 0.2}mm resolution)
-                          </span>
-                        </td>
-                        <td className="py-3 text-center text-zinc-300 print:text-black">{totalBatchUnits}</td>
-                        <td className="py-3 text-right text-zinc-300 print:text-black tabular-nums">
-                          {currencySymbol}{(((breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 1 ? 0 : breakdown.totalMaterialCost) + breakdown.totalMachineCost + breakdown.failureBufferCost + (breakdown.profitAmount * 0.7)) / Math.max(1, totalBatchUnits)).toFixed(2)}
-                        </td>
-                        <td className="py-3 text-right font-semibold text-white print:text-black tabular-nums">
-                          {currencySymbol}{(((breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 1 ? 0 : breakdown.totalMaterialCost) + breakdown.totalMachineCost + breakdown.failureBufferCost + (breakdown.profitAmount * 0.7))).toFixed(2)}
-                        </td>
-                      </tr>
+                          {/* 3D Printing Production Machine Time */}
+                          <tr>
+                            <td className="py-3 text-left">
+                              <span className="font-sans font-medium text-white print:text-black block">
+                                Industrial FDM 3D Printing Production
+                              </span>
+                              <span className="font-sans text-[11px] text-zinc-400 print:text-zinc-600">
+                                Machine runtime ({params.printHours.toFixed(1)} total machine hours{(!breakdown.filamentItemCosts || breakdown.filamentItemCosts.length <= 1) ? ` · ${metadata?.filamentType || 'Thermoplastic'}` : ''}, {metadata?.layerHeightMm || 0.2}mm resolution)
+                              </span>
+                            </td>
+                            <td className="py-3 text-center text-zinc-300 print:text-black">{totalBatchUnits}</td>
+                            <td className="py-3 text-right text-zinc-300 print:text-black tabular-nums">
+                              {currencySymbol}{(((breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 1 ? 0 : breakdown.totalMaterialCost) + breakdown.totalMachineCost + breakdown.failureBufferCost + (breakdown.profitAmount * 0.7) + (!breakdown.enablePackaging ? breakdown.workshopOverheadCost + breakdown.profitAmount * 0.12 : 0)) / Math.max(1, totalBatchUnits)).toFixed(2)}
+                            </td>
+                            <td className="py-3 text-right font-semibold text-white print:text-black tabular-nums">
+                              {currencySymbol}{(((breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 1 ? 0 : breakdown.totalMaterialCost) + breakdown.totalMachineCost + breakdown.failureBufferCost + (breakdown.profitAmount * 0.7) + (!breakdown.enablePackaging ? breakdown.workshopOverheadCost + breakdown.profitAmount * 0.12 : 0))).toFixed(2)}
+                            </td>
+                          </tr>
+                        </>
+                      )}
 
                       {/* Post-Processing */}
                       <tr>

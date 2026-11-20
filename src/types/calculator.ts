@@ -154,6 +154,27 @@ export interface FilamentCostItem {
   colorHex?: string;
 }
 
+export interface PartCostItem {
+  id: string;
+  partName: string;
+  fileName: string;
+  quantity: number;
+  printTimeSeconds: number;
+  printTimeFormatted: string;
+  filamentGramsPerUnit: number;
+  totalFilamentGrams: number;
+  filamentLabel: string;
+  dimensions?: {
+    width: number;
+    depth: number;
+    height: number;
+  };
+  materialCost: number;
+  machineCost: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
 export interface CostBreakdown {
   // Direct Costs
   filamentCost: number;
