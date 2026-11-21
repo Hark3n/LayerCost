@@ -1292,12 +1292,12 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Pillar 3 & 4: Machine Depreciation & Maintenance Consumables */}
+              {/* Pillar 3: Machine Depreciation & Wear Consumables */}
               <div className="p-4 sm:p-5 rounded-md border border-[#3f3f44] bg-[#2d2d30] space-y-4">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-[#3f3f44] pb-3">
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-xs bg-zinc-400" />
-                    <h3 className="text-sm font-semibold text-white">3 & 4. Machine Depreciation & Wear Consumables</h3>
+                    <h3 className="text-sm font-semibold text-white">3. Machine Depreciation & Wear Consumables</h3>
                   </div>
                   <div className="flex items-center gap-2 w-full sm:w-auto">
                     <span className="text-[11px] text-zinc-400 shrink-0">Printer Preset:</span>
@@ -1376,7 +1376,7 @@ export default function App() {
                     <PencilRuler className={`w-4 h-4 ${params.enableCadService ? 'text-[#00c44b]' : 'text-zinc-400'}`} />
                     <div>
                       <h3 className="text-sm font-semibold text-white flex flex-wrap items-center gap-2">
-                        <span>3D CAD Modeling & Client Design Review</span>
+                        <span>4. 3D CAD Modeling & Client Design Review</span>
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#1e1e20] text-[#f58220] border border-[#45454a] font-mono font-normal">
                           Engineering Service
                         </span>
@@ -1614,15 +1614,50 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Pillar 6 & 7: Scrap Risk Buffer, Packaging & Overhead */}
+              {/* Pillar 6: Scrap Risk Buffer */}
+              <div className="p-4 sm:p-5 rounded-md border border-[#3f3f44] bg-[#2d2d30] space-y-4">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-[#3f3f44] pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-xs bg-rose-500" />
+                    <div>
+                      <h3 className="text-sm font-semibold text-white">6. Scrap Risk Buffer</h3>
+                      <p className="text-xs text-zinc-400 mt-0.5">
+                        Failure & scrap loss protection against warped prints or bed detachment.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-xs font-mono text-zinc-300 tabular-nums">
+                    Buffer Allowance:{' '}
+                    <span className="text-rose-400 font-semibold">
+                      {currencySymbol}{breakdown.failureBufferCost.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Failure / Scrap Buffer (%)</label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={params.failureRiskPercent}
+                    onChange={(e) => setParams({ ...params, failureRiskPercent: parseFloat(e.target.value) || 0 })}
+                    className="w-full sm:max-w-xs bg-[#1e1e20] border border-[#45454a] rounded px-3 py-2 text-sm text-white font-mono focus:border-[#00ae42] focus:outline-hidden tabular-nums"
+                  />
+                  <span className="text-[10px] text-zinc-500 mt-0.5 block">
+                    Protects against warped prints & detachment (8-15% typical)
+                  </span>
+                </div>
+              </div>
+
+              {/* Pillar 7: Packaging & Overhead */}
               <div className="p-4 sm:p-5 rounded-md border border-[#3f3f44] bg-[#2d2d30] space-y-4">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-[#3f3f44] pb-3">
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-xs bg-[#f58220]" />
                     <div>
-                      <h3 className="text-sm font-semibold text-white">6 & 7. Scrap Risk Buffer, Packaging & Overhead</h3>
+                      <h3 className="text-sm font-semibold text-white">7. Packaging & Overhead</h3>
                       <p className="text-xs text-zinc-400 mt-0.5">
-                        Protective boxing, courier prep, scrap loss protection & workshop fixed overhead.
+                        Protective boxing, courier prep & workshop fixed overhead.
                       </p>
                     </div>
                   </div>
@@ -1644,21 +1679,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Failure / Scrap Buffer (%)</label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={params.failureRiskPercent}
-                      onChange={(e) => setParams({ ...params, failureRiskPercent: parseFloat(e.target.value) || 0 })}
-                      className="w-full bg-[#1e1e20] border border-[#45454a] rounded px-3 py-2 text-sm text-white font-mono focus:border-[#00ae42] focus:outline-hidden tabular-nums"
-                    />
-                    <span className="text-[10px] text-zinc-500 mt-0.5 block">
-                      Protects against warped prints & detachment (8-15% typical)
-                    </span>
-                  </div>
-
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className={!params.enablePackaging ? 'opacity-60' : ''}>
                     <div className="flex justify-between items-center mb-1">
                       <label className="text-xs text-zinc-400">Packaging & Box ({currencySymbol}/plate)</label>
