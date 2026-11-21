@@ -253,8 +253,8 @@ Client Review Sessions: ${params.cadReviewCycles} round(s) (${params.cadReviewMi
       : '';
 
     const filesText = partCosts.length > 0
-      ? `Parts Breakdown (${partCosts.length} part${partCosts.length > 1 ? 's' : ''}, ${totalBatchUnits} units total):\n` +
-        partCosts.map((p) => `  - ${p.partName} (Qty: ${p.quantity}, ${p.printTimeFormatted}, ${p.filamentGramsPerUnit}g/ea): ${currencySymbol}${p.unitPrice.toFixed(2)}/ea = ${currencySymbol}${p.lineTotal.toFixed(2)}`).join('\n') + '\n'
+      ? `Parts Breakdown (${partCosts.length} item${partCosts.length > 1 ? 's' : ''}, ${totalBatchUnits} ${totalBatchUnits === 1 ? 'plate' : 'plates'} total):\n` +
+        partCosts.map((p) => `  - ${p.partName} (Qty: ${p.quantity}, ${p.printTimeFormatted}, ${p.filamentGramsPerUnit}g/plate): ${currencySymbol}${p.unitPrice.toFixed(2)}/plate = ${currencySymbol}${p.lineTotal.toFixed(2)}`).join('\n') + '\n'
       : '';
 
     const materialsText = breakdown.filamentItemCosts && breakdown.filamentItemCosts.length > 0
@@ -262,7 +262,7 @@ Client Review Sessions: ${params.cadReviewCycles} round(s) (${params.cadReviewMi
         breakdown.filamentItemCosts.map((m) => `  - ${m.name} (${m.type}): ${m.totalGrams.toFixed(1)}g total = ${currencySymbol}${m.cost.toFixed(2)}`).join('\n') + '\n'
       : `Material: ${metadata?.filamentType || 'Engineering Thermoplastic'}\n`;
 
-    const qaText = `Quality Assurance: Dimensional verification (${params.qaInspectionMins || 4}m/unit, ISO/ASTM 52900) = ${currencySymbol}${breakdown.qaInspectionCost.toFixed(2)}\n`;
+    const qaText = `Quality Assurance: Dimensional verification (${params.qaInspectionMins || 4}m/plate, ISO/ASTM 52900) = ${currencySymbol}${breakdown.qaInspectionCost.toFixed(2)}\n`;
     const packagingText = breakdown.enablePackaging
       ? `Packaging: Protective box & cushioning = ${currencySymbol}${breakdown.totalPackagingCost.toFixed(2)} (Tracked courier spec)\n`
       : `Packaging: Excluded (Client Workshop Collection / Unboxed)\n`;
@@ -276,11 +276,11 @@ Provider: ${businessName} (VAT: ${vatNumber})
 Client: ${clientName}
 Project: ${projectName}
 ${cadText}
-${filesText}${materialsText}Total Units: ${totalBatchUnits} unit(s)
+${filesText}${materialsText}Total Plates: ${totalBatchUnits} plate(s)
 Machine Time: ${params.printHours.toFixed(1)} hrs total
 Slicing & Toolpath: ${params.slicingMins} mins
-Post-Processing & Supports: ${params.postProcessingMins} mins/unit
-${qaText}${packagingText}Unit Price (excl. VAT): ${currencySymbol}${(subtotal / Math.max(1, totalBatchUnits)).toFixed(2)}
+Post-Processing & Supports: ${params.postProcessingMins} mins/plate
+${qaText}${packagingText}Plate Price (excl. VAT): ${currencySymbol}${(subtotal / Math.max(1, totalBatchUnits)).toFixed(2)}
 Subtotal (excl. VAT): ${currencySymbol}${subtotal.toFixed(2)}
 VAT (${taxRate}%): ${currencySymbol}${taxAmount.toFixed(2)}
 TOTAL (incl. VAT): ${currencySymbol}${grandTotal.toFixed(2)}
@@ -544,18 +544,18 @@ Notes: ${notes}
       <label>Project / Order Summary</label>
       <div>${projectName}</div>
       ${activeFiles.length > 0
-        ? `<span>${activeFiles.length} file(s) · ${totalBatchUnits} total unit(s)</span>`
+        ? `<span>${activeFiles.length} file(s) · ${totalBatchUnits} total plate(s)</span>`
         : (metadata?.dimensions ? `<span>Dimensions: ${metadata.dimensions.width}×${metadata.dimensions.depth}×${metadata.dimensions.height} mm</span>` : '')
       }
     </div>
     ${partCosts.length > 0 ? `
     <div class="info-block" style="grid-column: span 2; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px;">
-      <label>Parts & Cost Breakdown (${partCosts.length} Part${partCosts.length > 1 ? 's' : ''} · ${totalBatchUnits} Total Units)</label>
+      <label>Parts & Cost Breakdown (${partCosts.length} Item${partCosts.length > 1 ? 's' : ''} · ${totalBatchUnits} Total Plates)</label>
       <div style="font-weight: normal; font-size: 11px; margin-top: 4px;">
         ${partCosts.map((p) => `
           <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 0; border-bottom: 1px dashed #e2e8f0;">
-            <span><strong style="color: #000000;">${p.partName}</strong> <span style="color: #52525b;">(${p.printTimeFormatted}, ${p.filamentGramsPerUnit}g/ea · ${p.filamentLabel}${p.dimensions ? ` · ${p.dimensions.width}×${p.dimensions.depth}×${p.dimensions.height}mm` : ''})</span></span>
-            <span style="font-family: ui-monospace, monospace; white-space: nowrap; color: #000000;">Qty: <strong>${p.quantity}</strong> · ${currencySymbol}${p.unitPrice.toFixed(2)}/ea · <strong>${currencySymbol}${p.lineTotal.toFixed(2)}</strong></span>
+            <span><strong style="color: #000000;">${p.partName}</strong> <span style="color: #52525b;">(${p.printTimeFormatted}/plate, ${p.filamentGramsPerUnit}g/plate · ${p.filamentLabel}${p.dimensions ? ` · ${p.dimensions.width}×${p.dimensions.depth}×${p.dimensions.height}mm` : ''})</span></span>
+            <span style="font-family: ui-monospace, monospace; white-space: nowrap; color: #000000;">Qty: <strong>${p.quantity}</strong> · ${currencySymbol}${p.unitPrice.toFixed(2)}/plate · <strong>${currencySymbol}${p.lineTotal.toFixed(2)}</strong></span>
           </div>
         `).join('')}
       </div>
@@ -568,7 +568,7 @@ Notes: ${notes}
       <tr>
         <th style="width: 52%;">Service Description</th>
         <th class="center" style="width: 10%;">Qty</th>
-        <th class="num" style="width: 18%;">Rate / Unit</th>
+        <th class="num" style="width: 18%;">Rate / Plate</th>
         <th class="num" style="width: 20%;">Amount</th>
       </tr>
     </thead>
@@ -607,7 +607,7 @@ Notes: ${notes}
         <tr>
           <td>
             <span class="item-title">Part: ${p.partName} <span class="tag">Part ${idx + 1}</span></span>
-            <div class="item-desc">3D Printed Component · ${p.printTimeFormatted}/ea · ${p.filamentGramsPerUnit}g/ea (${p.filamentLabel})${p.dimensions ? ` · ${p.dimensions.width}×${p.dimensions.depth}×${p.dimensions.height} mm` : ''}</div>
+            <div class="item-desc">3D Printed Component · ${p.printTimeFormatted}/plate · ${p.filamentGramsPerUnit}g/plate (${p.filamentLabel})${p.dimensions ? ` · ${p.dimensions.width}×${p.dimensions.depth}×${p.dimensions.height} mm` : ''}</div>
           </td>
           <td class="center">${p.quantity}</td>
           <td class="num">${currencySymbol}${p.unitPrice.toFixed(2)}</td>
@@ -641,7 +641,7 @@ Notes: ${notes}
       <tr>
         <td>
           <span class="item-title">Post-Processing & Support Removal</span>
-          <div class="item-desc">Support detachment, surface cleanup, raft removal & thermal deburring (${params.postProcessingMins} mins/unit)</div>
+          <div class="item-desc">Support detachment, surface cleanup, raft removal & thermal deburring (${params.postProcessingMins} mins/plate)</div>
         </td>
         <td class="center">${totalBatchUnits}</td>
         <td class="num">${currencySymbol}${((breakdown.postProcessingCost + breakdown.profitAmount * 0.1) / Math.max(1, totalBatchUnits)).toFixed(2)}</td>
@@ -650,7 +650,7 @@ Notes: ${notes}
       <tr>
         <td>
           <span class="item-title">Quality Assurance & Dimensional Inspection <span class="tag">QA / QC</span></span>
-          <div class="item-desc">Precision caliper & micrometer verification against 3D CAD model, layer adhesion check (ISO/ASTM 52900 standard, ${params.qaInspectionMins || 4} mins/unit)</div>
+          <div class="item-desc">Precision caliper & micrometer verification against 3D CAD model, layer adhesion check (ISO/ASTM 52900 standard, ${params.qaInspectionMins || 4} mins/plate)</div>
         </td>
         <td class="center">${totalBatchUnits}</td>
         <td class="num">${currencySymbol}${((breakdown.qaInspectionCost + breakdown.profitAmount * 0.08) / Math.max(1, totalBatchUnits)).toFixed(2)}</td>
@@ -695,8 +695,8 @@ Notes: ${notes}
         <span>${currencySymbol}${grandTotal.toFixed(2)}</span>
       </div>
       <div class="total-row" style="font-size: 11px; margin-top: 4px;">
-        <span>Unit Price (incl. VAT):</span>
-        <span>${currencySymbol}${(grandTotal / Math.max(1, totalBatchUnits)).toFixed(2)} / part</span>
+        <span>Plate Price (incl. VAT):</span>
+        <span>${currencySymbol}${(grandTotal / Math.max(1, totalBatchUnits)).toFixed(2)} / plate</span>
       </div>
     </div>
   </div>
@@ -1049,7 +1049,7 @@ Notes: ${notes}
                 />
                 <span className="hidden print:inline font-semibold text-black">{projectName}</span>
                 <span className="text-zinc-400 print:text-zinc-600 block text-[11px]">
-                  {activeFiles.length > 0 ? `${activeFiles.length} file(s) · ${totalBatchUnits} total parts` : (metadata?.dimensions ? `${metadata.dimensions.width}×${metadata.dimensions.depth}×${metadata.dimensions.height} mm` : '')}
+                  {activeFiles.length > 0 ? `${activeFiles.length} file(s) · ${totalBatchUnits} total ${totalBatchUnits === 1 ? 'plate' : 'plates'}` : (metadata?.dimensions ? `${metadata.dimensions.width}×${metadata.dimensions.depth}×${metadata.dimensions.height} mm` : '')}
                 </span>
               </div>
 
@@ -1058,7 +1058,7 @@ Notes: ${notes}
                   <div className="font-semibold text-zinc-300 print:text-black mb-1.5 flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <Box className="w-3.5 h-3.5 text-[#00c44b] print:text-black" />
-                      <span>Parts & Cost Breakdown ({partCosts.length} part{partCosts.length > 1 ? 's' : ''} · {totalBatchUnits} units total)</span>
+                      <span>Parts & Cost Breakdown ({partCosts.length} item{partCosts.length > 1 ? 's' : ''} · {totalBatchUnits} {totalBatchUnits === 1 ? 'plate' : 'plates'} total)</span>
                     </span>
                     <span className="font-mono text-[10px] text-[#26b4b0] print:text-black">{params.printHours.toFixed(1)} machine hrs</span>
                   </div>
@@ -1068,12 +1068,12 @@ Notes: ${notes}
                         <div className="min-w-0 flex-1 pr-2">
                           <span className="font-sans font-medium text-zinc-100 print:text-black truncate block">{p.partName}</span>
                           <span className="font-sans text-[10px] text-zinc-400 print:text-zinc-600 block truncate">
-                            {p.printTimeFormatted}/ea · {p.filamentGramsPerUnit}g/ea · {p.filamentLabel}
+                            {p.printTimeFormatted}/plate · {p.filamentGramsPerUnit}g/plate · {p.filamentLabel}
                             {p.dimensions ? ` · ${p.dimensions.width}×${p.dimensions.depth}×${p.dimensions.height}mm` : ''}
                           </span>
                         </div>
                         <span className="shrink-0 text-zinc-300 print:text-black font-mono text-[10px] tabular-nums">
-                          Qty: <strong className="text-white print:text-black">{p.quantity}</strong> · @ {currencySymbol}{p.unitPrice.toFixed(2)} · <strong className="text-[#00c44b] print:text-black">{currencySymbol}{p.lineTotal.toFixed(2)}</strong>
+                          Qty: <strong className="text-white print:text-black">{p.quantity}</strong> · @ {currencySymbol}{p.unitPrice.toFixed(2)}/plate · <strong className="text-[#00c44b] print:text-black">{currencySymbol}{p.lineTotal.toFixed(2)}</strong>
                         </span>
                       </div>
                     ))}
@@ -1089,7 +1089,7 @@ Notes: ${notes}
                   <tr className="border-b border-zinc-800 print:border-zinc-300 text-zinc-400 print:text-zinc-600">
                     <th className="text-left py-2">Service Description</th>
                     <th className="text-center py-2">Qty</th>
-                    <th className="text-right py-2">Rate / Unit</th>
+                    <th className="text-right py-2">Rate / Plate</th>
                     <th className="text-right py-2">Amount</th>
                   </tr>
                 </thead>
@@ -1170,7 +1170,7 @@ Notes: ${notes}
                                 </span>
                               </span>
                               <span className="font-sans text-[11px] text-zinc-400 print:text-zinc-600 block">
-                                3D Printed Component · {p.printTimeFormatted}/ea · {p.filamentGramsPerUnit}g/ea ({p.filamentLabel})
+                                3D Printed Component · {p.printTimeFormatted}/plate · {p.filamentGramsPerUnit}g/plate ({p.filamentLabel})
                                 {p.dimensions ? ` · ${p.dimensions.width}×${p.dimensions.depth}×${p.dimensions.height} mm` : ''}
                               </span>
                             </td>
@@ -1245,7 +1245,7 @@ Notes: ${notes}
                             Post-Processing & Support Removal
                           </span>
                           <span className="font-sans text-[11px] text-zinc-400 print:text-zinc-600">
-                            Support detachment, surface cleanup, raft removal & thermal deburring ({params.postProcessingMins} mins/unit)
+                            Support detachment, surface cleanup, raft removal & thermal deburring ({params.postProcessingMins} mins/plate)
                           </span>
                         </td>
                         <td className="py-3 text-center text-zinc-300 print:text-black">{totalBatchUnits}</td>
@@ -1267,7 +1267,7 @@ Notes: ${notes}
                             </span>
                           </span>
                           <span className="font-sans text-[11px] text-zinc-400 print:text-zinc-600">
-                            Precision caliper & micrometer verification against 3D CAD model, layer bonding check (ISO/ASTM 52900 spec, {params.qaInspectionMins || 4} mins/unit)
+                            Precision caliper & micrometer verification against 3D CAD model, layer bonding check (ISO/ASTM 52900 spec, {params.qaInspectionMins || 4} mins/plate)
                           </span>
                         </td>
                         <td className="py-3 text-center text-zinc-300 print:text-black">{totalBatchUnits}</td>
@@ -1449,7 +1449,7 @@ Notes: ${notes}
                         </td>
                       </tr>
                       <tr>
-                        <td className="py-2.5 text-left font-sans">Workshop Overhead Allocation ({currencySymbol}{params.workshopOverheadPerPrint}/unit)</td>
+                        <td className="py-2.5 text-left font-sans">Workshop Overhead Allocation ({currencySymbol}{params.workshopOverheadPerPrint}/plate)</td>
                         <td className="py-2.5 text-center">{totalBatchUnits}</td>
                         <td className="py-2.5 text-right tabular-nums">
                           {currencySymbol}{(breakdown.workshopOverheadCost / Math.max(1, totalBatchUnits)).toFixed(2)}
@@ -1486,8 +1486,8 @@ Notes: ${notes}
                   <span>{currencySymbol}{grandTotal.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-[11px] text-zinc-400 print:text-zinc-600 pt-1">
-                  <span>Unit Price (incl. VAT):</span>
-                  <span>{currencySymbol}{(grandTotal / Math.max(1, totalBatchUnits)).toFixed(2)} / part</span>
+                  <span>Plate Price (incl. VAT):</span>
+                  <span>{currencySymbol}{(grandTotal / Math.max(1, totalBatchUnits)).toFixed(2)} / plate</span>
                 </div>
               </div>
             </div>
@@ -1650,7 +1650,7 @@ Notes: ${notes}
         {/* Modal Footer Actions */}
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 border-t border-[#3f3f44] bg-[#1e1e20] no-print">
           <div className="text-xs text-zinc-400 font-mono tabular-nums">
-            {totalBatchUnits} unit(s) across {activeFiles.length || 1} file(s) · {params.printHours.toFixed(1)} machine hrs
+            {totalBatchUnits} plate(s) across {activeFiles.length || 1} file(s) · {params.printHours.toFixed(1)} machine hrs
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button

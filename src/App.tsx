@@ -1007,7 +1007,7 @@ export default function App() {
                 <div>
                   <h2 className="text-base font-semibold text-white">
                     {files.length > 1
-                      ? `Multi-File Batch Loaded (${files.length} G-code Files · ${totalBatchUnits} Parts)`
+                      ? `Multi-File Batch Loaded (${files.length} G-code Files · ${totalBatchUnits} Plates)`
                       : activeFile
                       ? activeFile.fileName
                       : 'Drop Slicer G-code Files (Single or Multiple)'}
@@ -1163,11 +1163,11 @@ export default function App() {
               <div>
                 <h3 className="text-base font-semibold text-white">Batch & Volume Economics</h3>
                 <p className="text-xs text-zinc-400">
-                  Shows how fixed slicing and machine prep labor amortize across larger production runs, reducing cost per unit.
+                  Shows how fixed slicing and machine prep labor amortize across larger production runs, reducing cost per plate.
                 </p>
               </div>
               <div className="text-xs font-mono text-[#00c44b] tabular-nums">
-                Current Batch: {params.quantity} {params.quantity === 1 ? 'batch run' : 'batch runs'} ({totalBatchUnits} parts total)
+                Current Batch: {params.quantity} {params.quantity === 1 ? 'batch run' : 'batch runs'} ({totalBatchUnits} {totalBatchUnits === 1 ? 'plate' : 'plates'} total)
               </div>
             </div>
             <BatchCalculator
@@ -1503,7 +1503,7 @@ export default function App() {
                     <div>
                       <h3 className="text-sm font-semibold text-white">5. Slicing CAM & Workshop Operator Labor</h3>
                       <p className="text-xs text-zinc-400 mt-0.5">
-                        Separated into fixed CAM toolpath slicing (once per job) and hands-on handling (per unit).
+                        Separated into fixed CAM toolpath slicing (once per job) and hands-on handling (per plate).
                       </p>
                     </div>
                   </div>
@@ -1661,7 +1661,7 @@ export default function App() {
 
                   <div className={!params.enablePackaging ? 'opacity-60' : ''}>
                     <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs text-zinc-400">Packaging & Box ({currencySymbol}/unit)</label>
+                      <label className="text-xs text-zinc-400">Packaging & Box ({currencySymbol}/plate)</label>
                       {!params.enablePackaging && (
                         <span className="text-[10px] font-mono text-[#f58220] font-medium">Excluded</span>
                       )}
@@ -1712,8 +1712,8 @@ export default function App() {
                     </span>
                     {totalBatchUnits > 1 && (
                       <span className="text-xs text-zinc-400 font-mono tabular-nums text-right">
-                        {currencySymbol}{(breakdown.finalTotalPrice / totalBatchUnits).toFixed(2)} / part
-                        <span className="text-zinc-500 block text-[10px]">({totalBatchUnits} parts total)</span>
+                        {currencySymbol}{(breakdown.finalTotalPrice / totalBatchUnits).toFixed(2)} / plate
+                        <span className="text-zinc-500 block text-[10px]">({totalBatchUnits} plates total)</span>
                       </span>
                     )}
                   </div>

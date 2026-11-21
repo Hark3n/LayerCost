@@ -42,8 +42,8 @@ export const BatchCalculator: React.FC<BatchCalculatorProps> = ({
           <tr className="border-b border-[#3f3f44] text-zinc-400 bg-[#232325]">
             <th className="py-2.5 px-3 font-medium">Quantity</th>
             <th className="py-2.5 px-3 font-medium">Print Time</th>
-            <th className="py-2.5 px-3 font-medium">Unit Cost (Base)</th>
-            <th className="py-2.5 px-3 font-medium">Unit Quote (With Markup)</th>
+            <th className="py-2.5 px-3 font-medium">Plate Cost (Base)</th>
+            <th className="py-2.5 px-3 font-medium">Plate Quote (With Markup)</th>
             <th className="py-2.5 px-3 font-medium">Total Batch Price</th>
             <th className="py-2.5 px-3 font-medium">Volume Savings</th>
             <th className="py-2.5 px-3 text-right font-medium">Action</th>
@@ -60,7 +60,7 @@ export const BatchCalculator: React.FC<BatchCalculatorProps> = ({
                 }`}
               >
                 <td className="py-3 px-3 font-semibold flex items-center gap-1.5">
-                  <span className="text-white tabular-nums">{tier.qty} {tier.qty === 1 ? 'part' : 'parts'}</span>
+                  <span className="text-white tabular-nums">{tier.qty} {tier.qty === 1 ? 'plate' : 'plates'}</span>
                   {isSelected && (
                     <span className="text-[10px] text-[#00c44b] font-sans font-medium px-1.5 py-0.2 bg-[#00ae42]/15 rounded border border-[#00ae42]/40">
                       Active
@@ -73,7 +73,7 @@ export const BatchCalculator: React.FC<BatchCalculatorProps> = ({
                 <td className="py-3 px-3 tabular-nums text-white font-semibold">{currencySymbol}{tier.totalPrice.toFixed(2)}</td>
                 <td className="py-3 px-3 tabular-nums">
                   {tier.savingsPercent > 0 ? (
-                    <span className="text-[#f58220] font-medium">-{tier.savingsPercent}% / part</span>
+                    <span className="text-[#f58220] font-medium">-{tier.savingsPercent}% / plate</span>
                   ) : (
                     <span className="text-zinc-500">Baseline</span>
                   )}

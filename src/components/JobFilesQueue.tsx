@@ -72,7 +72,7 @@ export const JobFilesQueue: React.FC<JobFilesQueueProps> = ({
             <h3 className="text-sm font-semibold text-white flex flex-wrap items-center gap-2">
               <span>Multi-File Job Queue</span>
               <span className="text-[11px] font-mono font-normal text-zinc-400 tabular-nums">
-                · {activeFiles.length}/{files.length} active ({totalParts} parts)
+                · {activeFiles.length}/{files.length} active ({totalParts} {totalParts === 1 ? 'plate' : 'plates'})
               </span>
             </h3>
             <p className="text-xs text-zinc-400">
@@ -197,7 +197,7 @@ export const JobFilesQueue: React.FC<JobFilesQueueProps> = ({
                     <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-mono text-zinc-400 tabular-nums">
                       <span className="flex items-center gap-1 text-zinc-300">
                         <Clock className="w-3.5 h-3.5 text-[#26b4b0]" />
-                        <span>{file.metadata.printTimeFormatted}/unit</span>
+                        <span>{file.metadata.printTimeFormatted}/plate</span>
                         {file.quantity > 1 && (
                           <span className="text-zinc-500">
                             (Total: <strong className="text-white">{formatHoursMins(totalTime)}</strong>)
@@ -207,7 +207,7 @@ export const JobFilesQueue: React.FC<JobFilesQueueProps> = ({
 
                       <span className="flex items-center gap-1 text-zinc-300">
                         <Layers className="w-3.5 h-3.5 text-[#f58220]" />
-                        <span>{singleGrams}g/unit</span>
+                        <span>{singleGrams}g/plate</span>
                         {file.quantity > 1 && (
                           <span className="text-zinc-500">
                             (Total: <strong className="text-white">{totalGrams.toFixed(1)}g</strong>)
@@ -301,8 +301,8 @@ export const JobFilesQueue: React.FC<JobFilesQueueProps> = ({
             </div>
             <div className="text-zinc-600 hidden sm:inline">·</div>
             <div>
-              <span className="text-zinc-500">Total Parts:</span>{' '}
-              <strong className="text-[#f58220]">{totalParts} units</strong>
+              <span className="text-zinc-500">Total Plates:</span>{' '}
+              <strong className="text-[#f58220]">{totalParts} {totalParts === 1 ? 'plate' : 'plates'}</strong>
             </div>
             <div className="text-zinc-600 hidden sm:inline">·</div>
             <div>

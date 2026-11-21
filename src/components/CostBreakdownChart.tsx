@@ -68,7 +68,7 @@ export const CostBreakdownChart: React.FC<CostBreakdownChartProps> = ({
             </div>
             {quantity > 1 && (
               <div className="text-[11px] text-zinc-500 font-mono mt-0.5 tabular-nums">
-                {currencySymbol}{(c.cost / quantity).toFixed(2)} / unit
+                {currencySymbol}{(c.cost / quantity).toFixed(2)} / plate
               </div>
             )}
           </div>
